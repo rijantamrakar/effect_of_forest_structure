@@ -57,9 +57,9 @@ lapply(required.packages, require, character.only = TRUE)
 #### Timeseries flux plot annual ####
 #------------------------------------------------------------------------------#
 
-timeseries_plot <- function(FileName,                                           # Filepath to the data
+timeseries_avg <- function(FileName,                                           # Filepath to the data
                             Problematic.Year,                                   # List of years when data are not good or unavailable
-                            site,                                               # flux site name
+                            Site,                                               # flux site name
                             timestep)                                           # can be daily, weekly, monthly, annual
         {                      
         
@@ -69,29 +69,9 @@ timeseries_plot <- function(FileName,                                           
         data[data == -9999] <- NA
         data$nep       <- -data$nee
         
-        maxVal <- max(data$nep, data$reco, data$gpp, na.rm = T)
-        minVal <- min(data$nep, data$reco, data$gpp, na.rm = T)
+        data           <- dplyr::filter(data, !timestamp %in% Problematic.Year)
         
-        with(data, plot(timestamp, 
-                        nep, 
-                        xlab = '', 
-                        ylab = '',
-                        typ = 'l', 
-                        xlim = c(min(data$timestamp) -1, max(data$timestamp) + 1), 
-                        ylim = c(minVal, maxVal)
-        )
-        )
-        with(data, points(timestamp, nep, pch = 15))
         
-        with(data, points(timestamp, gpp, pch = 16))
-        with(data, lines(timestamp, gpp, pch = 16))
-        
-        with(data, points(timestamp, reco, pch = 17))
-        with(data, lines(timestamp, reco, pch = 17))
-        
-        text(min(data$timestamp) + 1, minVal + 50, site)
-        
-        mtext(expression( "CO"[2]~ "["~ g ~ C ~ m^{-2}~ yr^{-1}~ ']'), side = 2, line = 2.2, cex = 0.8)
         
         
 }
@@ -101,11 +81,19 @@ timeseries_plot <- function(FileName,                                           
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 dir.data <- 'main_analysis/flux.data/ann'
 dir.out   <- 'main_analysis/flux.data/annual_flux_all_sites'
+data.problem <- read.csv('main_analysis/flux.data/Data_with_problem.csv')
+
 for(j in 1:length(sitelistwithstructuredata)) {
-        site <- sitelistwithstructuredata[j]
-        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        Site <- sitelistwithstructuredata[j]
         if(length(FileName) == 1) {
-                timeseries_plot(FileName, site)     
+                data.problem.for.site <- data.problem %>%
+                        filter(site == Site) %>%
+                        filter(dont_use_annual == 1)
+                
+                Problematic.Year <- data.problem.for.site$Not_good_year
+                FileName <- list.files(dir.data, pattern = site, full.names = T)
+                
+                timeseries_avg(FileName, site)     
         }
 }
 
