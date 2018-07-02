@@ -42,7 +42,8 @@ required.packages <- c("dplyr",                                                 
                        'ncdf4',
                        'chron',
                        'RColorBrewer',
-                       'lattice'
+                       'lattice',
+                       'matrixStats' 
 )  
 # checking if any packages are not installed
 new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
@@ -57,7 +58,7 @@ lapply(required.packages, require, character.only = TRUE)
 #### Timeseries flux plot annual ####
 #------------------------------------------------------------------------------#
 
-timeseries_avg <- function(FileName,                                           # Filepath to the data
+timeseries_avg <- function(FileName,                                            # Filepath to the data
                             Problematic.Year,                                   # List of years when data are not good or unavailable
                             Site,                                               # flux site name
                             timestep)                                           # can be daily, weekly, monthly, annual
@@ -68,15 +69,54 @@ timeseries_avg <- function(FileName,                                           #
         names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
         data[data == -9999] <- NA
         data$nep       <- -data$nee
-        
         data           <- dplyr::filter(data, !timestamp %in% Problematic.Year)
         
         
         
+        ReqdVar    <- c('nep', 'reco', 'gpp')
+        average    <- colMeans2(as.matrix(data[,ReqdVar]))
+        stdDev     <- colSds(as.matrix(data[,ReqdVar])) 
+        CoefVar    <- round(100 * stdDev/average, 1)
         
+        results    <- data.frame(ReqdVar, average, stdDev, CoefVar)
+        results$no.of.year <- nrow(results)
+        results$site <- Site
+        results$timestep <- timestep
+        
+        
+        
+        # plot the data if asked 
+        if(PlotData == 'YES') {
+                maxVal <- max(data$nep, data$reco, data$gpp, na.rm = T)
+                minVal <- min(data$nep, data$reco, data$gpp, na.rm = T)
+                
+                with(data, plot(timestamp, 
+                                nep, 
+                                xlab = '', 
+                                ylab = '',
+                                typ = 'l', 
+                                xlim = c(min(data$timestamp) - 2, max(data$timestamp) + 1), 
+                                ylim = c(minVal, maxVal)
+                )
+                )
+                with(data, points(timestamp, nep, pch = 15))
+                
+                with(data, points(timestamp, gpp, pch = 16))
+                with(data, lines(timestamp, gpp, pch = 16))
+                
+                with(data, points(timestamp, reco, pch = 17))
+                with(data, lines(timestamp, reco, pch = 17))
+                
+                text(min(data$timestamp) + 1, minVal + 50, Site)
+                text(min(data$timestamp) -1.5, average[1], 'NEP', cex = 0.7)
+                text(min(data$timestamp) -1.5, average[2], 'Reco', cex = 0.7)
+                text(min(data$timestamp) -1.5, average[3], 'GPP', cex = 0.7)
+                
+                mtext(expression( "CO"[2]~ "["~ g ~ C ~ m^{-2}~ yr^{-1}~ ']'), side = 2, line = 2.2, cex = 0.8)
+        }
+        
+        return(results)
 }
-
-
 
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 dir.data <- 'main_analysis/flux.data/ann'
@@ -91,7 +131,7 @@ for(j in 1:length(sitelistwithstructuredata)) {
                         filter(dont_use_annual == 1)
                 
                 Problematic.Year <- data.problem.for.site$Not_good_year
-                FileName <- list.files(dir.data, pattern = site, full.names = T)
+                FileName <- list.files(dir.data, pattern = Site, full.names = T)
                 
                 timeseries_avg(FileName, site)     
         }
