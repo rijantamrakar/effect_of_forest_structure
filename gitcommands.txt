@@ -13,6 +13,7 @@ commands.
 // branching and merging in git hub
 1. git checkout -b <branch name> // creating a branch for working
 2. git checkout <branch name> // for changing the branch
-3. Once every work is done following is the command to merge the file
+3. git push --set-upstream origin ver20180703
+4. Once every work is done following is the command to merge the file
 git merge <branch name>
-4. git branch -d <branch name>
+5. git branch -d <branch name>
