@@ -7,7 +7,6 @@ rm(list = ls())                                                                 
 #------------------------------------------------------------------------------#
 #### Loading required packages ####
 #------------------------------------------------------------------------------#
-
 if('greenbrown' %in% installed.packages()[,"Package"] == FALSE) {
         install.packages("C:/Users/Rijan/Documents/phd_work/r-scripts/greenbrown_2.4.3.tar.gz", repos = NULL, type="source")
 }
@@ -51,6 +50,309 @@ if(length(new.packages)) {
 } 
 # loading all required packages
 lapply(required.packages, require, character.only = TRUE)
+
+#------------------------------------------------------------------------------#
+#### PI flux_timeseries preparation function ####
+#------------------------------------------------------------------------------#
+# could be different for different site
+flux_timeseries_annual <- function(FileName, 
+                                   dataline
+                                   ){
+        head.data   <- read.delim(FileName, nrows=1, skip = dataline, sep=',', header=T)
+        head.name   <- names(head.data)
+        
+        col.var     <- which(names(head.data) %in% reqd.var)
+        data        <- fread(FileName, select = col.var, skip = dataline, header = T)
+        data[data == -999] <- NA
+        
+        data <- as.data.frame(data)
+        
+        dailydata <- data %>%
+                group_by(year, day) %>%
+                summarise(nep  = mean(nee_co2_filled, na.rm = T), 
+                          gpp  = mean(gpp, na.rm = T),
+                          reco = mean(reco, na.rm = T),
+                          non_na_count = sum(is.na(nep))) %>%
+                mutate(nep = -nep*1.0368, 
+                       gpp = gpp*1.0368,
+                       reco = reco*1.0368)
+        
+        anndata <- dailydata %>%
+                group_by(year) %>%
+                summarise(nep = sum(nep, na.rm = T),
+                          gpp = sum(gpp, na.rm = T),
+                          reco = sum(reco, na.rm = T), 
+                          na_count = sum(non_na_count))
+        
+        return(list(dailydata, anndata))
+        
+} # end of the function flux_timeseries
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for US-WCr ####
+#------------------------------------------------------------------------------#
+## annual timeseries of WCr ###
+dir.data  <- 'Communication_with_PIs/US-Wcr/flux'
+ListFiles <- list.files(dir.data, full.names = T)
+reqd.var  <- c('year', 'day', 'nee_co2_filled', 'reco', 'gpp')
+site      <- 'US-WCr' 
+
+DataDaily <- NULL
+DataAnn   <- NULL
+
+for(i in 1:length(ListFiles)) {
+        cat('data processing for', ListFiles[i], '\n')
+        FileName <- ListFiles[i]
+        dataline <- 126
+        datareturn <- flux_timeseries_annual (FileName, dataline)
+        
+        DataDaily <- rbind(DataDaily, datareturn[[1]])
+        DataAnn   <- rbind(DataAnn, datareturn[[2]])
+}
+
+dir.out <-'flux_data/PI_flux_data'
+write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+write.csv(DataAnn, file.path(dir.out, paste0(site,'_PI_Flux_data_ann.csv')), row.names = F)
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for US-Syv ####
+#------------------------------------------------------------------------------#
+## annual timeseries of US-Syv ###
+dir.data  <- 'Communication_with_PIs/US-Syv/flux'
+ListFiles <- list.files(dir.data, full.names = T)
+reqd.var  <- c('year', 'day', 'nee_co2_filled', 'reco', 'gpp')
+site      <- 'US-Syv' 
+
+DataDaily <- NULL
+DataAnn   <- NULL
+
+for(i in 1:length(ListFiles)) {
+        cat('data processing for', ListFiles[i], '\n')
+        FileName <- ListFiles[i]
+        dataline <- 114
+        datareturn <- flux_timeseries_annual (FileName, dataline)
+        
+        DataDaily <- rbind(DataDaily, datareturn[[1]])
+        DataAnn   <- rbind(DataAnn, datareturn[[2]])
+}
+
+dir.out <-'flux_data/PI_flux_data'
+write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+write.csv(DataAnn, file.path(dir.out, paste0(site,'_PI_Flux_data_ann.csv')), row.names = F)
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for US-Pfa ####
+#------------------------------------------------------------------------------#
+dir.data  <- 'Communication_with_PIs/US-Pfa/flux'
+ListFiles <- list.files(dir.data, full.names = T)
+reqd.var  <- c('year', 'day', 'nee_co2_filled', 'reco', 'gpp')
+site      <- 'US-PFa' 
+
+DataDaily <- NULL
+DataAnn   <- NULL
+
+for(i in 1:length(ListFiles)) {
+        cat('data processing for', ListFiles[i], '\n')
+        FileName <- ListFiles[i]
+        dataline <- 124
+        datareturn <- flux_timeseries_annual (FileName, dataline)
+        
+        DataDaily <- rbind(DataDaily, datareturn[[1]])
+        DataAnn   <- rbind(DataAnn, datareturn[[2]])
+}
+
+dir.out <-'flux_data/PI_flux_data'
+write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+write.csv(DataAnn, file.path(dir.out, paste0(site,'_PI_Flux_data_ann.csv')), row.names = F)
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for US-Ha1 ####
+#------------------------------------------------------------------------------#
+FileName <- 'Communication_with_PIs/US-Ha/US-Ha1-10m10m/HF_9215_filled.txt'
+site     <- 'US-Ha1'
+head.data   <- read.delim(FileName, nrows=1, sep='\t', header=T)
+head.name   <- names(head.data)
+
+reqd.var <- c('Year.Year', 'DoY.Day', 'nee.e.6mol.m2.s', 'Resp.e.e.6mol.m2.s', 'gee.e.6mol.m2.s')
+
+col.var     <- which(names(head.data) %in% reqd.var)
+data        <- fread(FileName, select = col.var, header = T)
+
+data <- as.data.frame(data)
+names(data) <-  c('year', 'day', 'nee_co2_filled', 'reco', 'gpp')
+
+dailydata <- data %>%
+        group_by(year, day) %>%
+        summarise(nep  = mean(nee_co2_filled, na.rm = T), 
+                  gpp  = mean(gpp, na.rm = T),
+                  reco = mean(reco, na.rm = T),
+                  non_na_count = sum(is.na(nep))) %>%
+        mutate(nep = -nep*1.0368, 
+               gpp = gpp*1.0368,
+               reco = reco*1.0368)
+
+anndata <- dailydata %>%
+        group_by(year) %>%
+        summarise(nep = sum(nep, na.rm = T),
+                  gpp = sum(gpp, na.rm = T),
+                  reco = sum(reco, na.rm = T), 
+                  na_count = sum(non_na_count))
+
+dir.out <-'flux_data/PI_flux_data'
+write.csv(dailydata, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+write.csv(anndata, file.path(dir.out, paste0(site,'_PI_Flux_data_ann.csv')), row.names = F)
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for DE-Hai  ####
+#------------------------------------------------------------------------------#
+FileName <- 'Communication_with_PIs/DE-Hai/daily_flux.csv'
+site     <- 'DE-Hai'
+data     <- read.csv(FileName)
+data$timestamp <- dmy(data$timestamp)
+data$year <- year(data$timestamp)
+data$day  <- yday(data$timestamp)
+data$non_na_count <- 0
+DataDaily <- dplyr::select(data, year, day, nep, gpp, reco, non_na_count)
+dir.out <-'flux_data/PI_flux_data'
+write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+
+#------------------------------------------------------------------------------#
+#### flux_timeseries for DE-Lnf  ####
+#------------------------------------------------------------------------------#
+FileName <- 'Communication_with_PIs/DE-Lnf/daily_flux.csv'
+site     <- 'DE-Lnf'
+data     <- read.csv(FileName)
+data$timestamp <- dmy(data$timestamp)
+data$year <- year(data$timestamp)
+data$day  <- yday(data$timestamp)
+data$non_na_count <- 0
+DataDaily <- dplyr::select(data, year, day, nep, gpp, reco, non_na_count)
+dir.out <-'flux_data/PI_flux_data'
+write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
+
+
+#------------------------------------------------------------------------------#
+#### compare annual PI_flux series with Fluxnet ####
+#------------------------------------------------------------------------------#
+dir.FluxNet2015 <- 'main_analysis/flux.data/ann'
+dir.PIFlux      <- 'flux_data/PI_flux_data'
+
+ListSites <- substr(list.files(dir.PIFlux, pattern = 'ann'), 1, 6)
+
+var <- c('nep', 'gpp', 'reco')
+dir.out <- 'flux_data/fluxdata_compare'
+pdf(file.path(dir.out, 'annual_compare.plots.pdf'))
+par(mfrow = c(3,3))
+par(mar = c(4,4,0.5,0.5))
+for(i in 1:length(ListSites)) {
+        File.FluxNet2015 <- list.files(dir.FluxNet2015, pattern = ListSites[i], full.names = T)
+        data.FluxNet2015 <- read.csv(File.FluxNet2015)
+        data.FluxNet2015 <- dplyr::select(data.FluxNet2015, 
+                                          year = TIMESTAMP,
+                                          nep = NEE_VUT_REF,
+                                          reco = RECO_DT_VUT_REF,
+                                          gpp = GPP_DT_VUT_REF)
+        data.FluxNet2015 <- dplyr::mutate(data.FluxNet2015, nep = -nep)
+        
+        File.PIFlux     <- file.path(dir.PIFlux, paste0(ListSites[i], '_PI_Flux_data_ann.csv'))
+        data.PIFlux     <- read.csv(File.PIFlux)
+        
+        data <- merge(data.PIFlux, data.FluxNet2015, by = 'year')
+        
+        data <- dplyr::filter(data, na_count == 0)
+        
+        
+        for(j in 1:length(var)) {
+                dataVar <- data[ ,c(paste0(var[j], '.x'), paste0(var[j], '.y'))]
+                names(dataVar) <- c('PIFlux', 'FluxNet2015')
+                
+                lmData <- lmodel2(FluxNet2015~PIFlux, dataVar, nperm = 99)
+                slope  <- round(lmData$regression.results[2,3], 2)
+                intercept <- round(lmData$regression.results[2,2], 2)
+                
+                with(dataVar, plot(PIFlux, FluxNet2015, 
+                                   xlab = 'PI', 
+                                   ylab = 'FluxNet2015', 
+                                   ylim = c(min(FluxNet2015, PIFlux), 
+                                            max(FluxNet2015, PIFlux)), 
+                                   xlim = c(min(FluxNet2015, PIFlux), 
+                                            max(FluxNet2015, PIFlux))
+                ))
+                
+                legend('topleft',paste(ListSites[i], var[j]) , bty = 'n')
+                abline(intercept, slope, lty = 2)
+                abline(0, 1, lty = 2, col = 2)
+                
+                legend('bottomright', paste('Y = ', intercept, '+', slope, 'X'), bty = 'n')
+        }
+}
+dev.off()
+
+
+#------------------------------------------------------------------------------#
+#### compare daily PI_flux series with Fluxnet ####
+#------------------------------------------------------------------------------#
+dir.FluxNet2015 <- 'main_analysis/flux.data/day'
+dir.PIFlux      <- 'flux_data/PI_flux_data'
+
+ListSites <- substr(list.files(dir.PIFlux, pattern = 'daily'), 1, 6)
+
+var <- c('nep', 'gpp', 'reco')
+dir.out <- 'flux_data/fluxdata_compare'
+pdf(file.path(dir.out, 'daily_compare.plots.pdf'))
+par(mfrow = c(3,3))
+par(mar = c(4,4,0.5,0.5))
+for(i in 1:length(ListSites)) {
+        File.FluxNet2015 <- list.files(dir.FluxNet2015, pattern = ListSites[i], full.names = T)
+        data.FluxNet2015 <- read.csv(File.FluxNet2015)
+        data.FluxNet2015 <- dplyr::select(data.FluxNet2015, 
+                                          TIMESTAMP,
+                                          nep = NEE_VUT_REF,
+                                          reco = RECO_DT_VUT_REF,
+                                          gpp = GPP_DT_VUT_REF)
+        data.FluxNet2015[data.FluxNet2015 == -9999] <- NA
+        data.FluxNet2015 <- na.omit(data.FluxNet2015)
+        data.FluxNet2015 <- dplyr::mutate(data.FluxNet2015, nep = -nep)
+        data.FluxNet2015$timestamp <- ymd(data.FluxNet2015$TIMESTAMP)
+        data.FluxNet2015$year <- year(data.FluxNet2015$timestamp)
+        data.FluxNet2015$day  <- yday(data.FluxNet2015$timestamp)
+        
+        
+        File.PIFlux     <- file.path(dir.PIFlux, paste0(ListSites[i], '_PI_Flux_data_daily.csv'))
+        data.PIFlux     <- read.csv(File.PIFlux)
+        
+        data <- merge(data.PIFlux, data.FluxNet2015, by = c('year', 'day'))
+        
+        data <- dplyr::filter(data, non_na_count == 0)
+        
+        
+        for(j in 1:length(var)) {
+                dataVar <- data[ ,c(paste0(var[j], '.x'), paste0(var[j], '.y'))]
+                names(dataVar) <- c('PIFlux', 'FluxNet2015')
+                
+                lmData <- lmodel2(FluxNet2015~PIFlux, dataVar, nperm = 99)
+                slope  <- round(lmData$regression.results[2,3], 2)
+                intercept <- round(lmData$regression.results[2,2], 2)
+                
+                with(dataVar, plot(PIFlux, FluxNet2015, 
+                                   xlab = 'PI', 
+                                   ylab = 'FluxNet2015', 
+                                   ylim = c(min(FluxNet2015, PIFlux), 
+                                            max(FluxNet2015, PIFlux)), 
+                                   xlim = c(min(FluxNet2015, PIFlux), 
+                                            max(FluxNet2015, PIFlux)),
+                                   pch = '.'
+                ))
+                
+                legend('topleft',paste(ListSites[i], var[j]) , bty = 'n')
+                abline(intercept, slope, lty = 2)
+                abline(0, 1, lty = 2, col = 2)
+                
+                legend('bottomright', paste('Y = ', intercept, '+', slope, 'X'), bty = 'n')
+        }
+}
+dev.off()
+
 
 #------------------------------------------------------------------------------#
 #### Timeseries flux plot annual function ####
