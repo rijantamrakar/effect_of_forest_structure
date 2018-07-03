@@ -1,0 +1,18 @@
+It is very important that I learn to use git. Here are some of the very basic
+commands.
+
+1. git init // initiate git it the folder.
+2. git status // to check what has been modified or added in the folder
+3. git add . // to add the modified/added files in the staging area.
+4. git commit -m 'changes made'// to change the modified files.
+
+//adding things to the online repository
+1. git remote add origin <remote_repo_url>
+2. git push origin
+
+// branching and merging in git hub
+1. git checkout -b <branch name> // creating a branch for working
+2. git checkout <branch name> // for changing the branch
+3. Once every work is done following is the command to merge the file
+git merge <branch name>
+4. git branch -d <branch name>
