@@ -51,6 +51,319 @@ if(length(new.packages)) {
 # loading all required packages
 lapply(required.packages, require, character.only = TRUE)
 
+
+################################################################################
+################################################################################
+#------------------------------------------------------------------------------#
+#### Preparing list of sites for analysis  ####
+#------------------------------------------------------------------------------#
+final_data <- read.csv('Communication_with_PIs/finallist.csv')
+list_of_sites <- as.character(final_data$Site.CODE)
+
+available_data <- data.frame(sn = character(length(list_of_sites)))
+available_data$site <- list_of_sites
+available_data <- available_data['site']
+
+#------------------------------------------------------------------------------#
+#### Prepare tier1 available data  ####
+#------------------------------------------------------------------------------#
+# what data is available in fluxnet 2015 tier 1 data
+dir.data      <- 'Communication_with_PIs/fluxnet2015_tier1'
+list_fn2015   <- list.files(dir.data, pattern = 'zip')
+list_of_sites <- substr(list_fn2015, 5,10)
+
+tier1_sy            <- as.numeric(substr(list_fn2015, 32, 35))
+tier1_ey            <- as.numeric(substr(list_fn2015, 37, 40))
+
+available_data_tier <- data.frame(sn = character(length(list_of_sites)))
+available_data_tier$site <- list_of_sites
+available_data_tier <- available_data_tier['site']
+available_data_tier$tier1_sy   <- tier1_sy
+available_data_tier$tier1_ey   <- tier1_ey
+
+# merge with available data
+available_data <- merge(available_data, 
+                        available_data_tier, 
+                        by = 'site', 
+                        all.x = T)
+
+available_data$tier1_ny <- available_data$tier1_ey - available_data$tier1_sy
+
+#------------------------------------------------------------------------------#
+#### Prepare tier2 available data  ####
+#------------------------------------------------------------------------------#
+# what data is available in fluxnet 2015 tier 1 data
+dir.data      <- 'Communication_with_PIs/fluxnet2015_tier2'
+list_fn2015   <- list.files(dir.data, pattern = 'zip')
+list_of_sites <- substr(list_fn2015, 5,10)
+
+tier1_sy            <- as.numeric(substr(list_fn2015, 32, 35))
+tier1_ey            <- as.numeric(substr(list_fn2015, 37, 40))
+
+available_data_tier <- data.frame(sn = character(length(list_of_sites)))
+available_data_tier$site <- list_of_sites
+available_data_tier <- available_data_tier['site']
+available_data_tier$tier2_sy   <- tier1_sy
+available_data_tier$tier2_ey   <- tier1_ey
+
+# merge with available data
+available_data <- merge(available_data, 
+                        available_data_tier, 
+                        by = 'site', 
+                        all.x = T)
+
+available_data$tier2_ny <- available_data$tier2_ey - available_data$tier2_sy
+
+#------------------------------------------------------------------------------#
+#### Merge with final data  ####
+#------------------------------------------------------------------------------#
+final_data <- merge(final_data, available_data, by.x = 'Site.CODE', by.y = 'site')
+
+#------------------------------------------------------------------------------#
+#### Add data from fernandez  ####
+#------------------------------------------------------------------------------#
+fernandex_data <- read.csv('Fernandez_paper_2017/trend_data_Fernandez_2017.csv')
+fernandex_data <- dplyr::select(fernandex_data, -Forest, -FT, -Y)
+header_fernand <- names(fernandex_data)
+header_fernand <- paste0('F_', header_fernand)
+names(fernandex_data) <- header_fernand
+final_data <- merge(final_data, fernandex_data, by.x = 'Site.CODE', by.y = 'F_Code', all.x = T)
+
+#------------------------------------------------------------------------------#
+#### Add data from talie  ####
+#------------------------------------------------------------------------------#
+musavi_data <- read.csv('Talie_paper_2017/Cv_gpp_Talie_add.csv')
+musavi_data <- dplyr::select(musavi_data, -X, -PFT, -ClimateGroup, -LAT, -LONG)
+
+header_musavi <- names(musavi_data)
+header_musavi <- paste0('M_', header_musavi)
+names(musavi_data) <- header_musavi
+final_data <- merge(final_data, musavi_data, by.x = 'Site.CODE', by.y = 'M_site.code', all.x = T)
+
+write.csv(final_data, file.path(paste0('Communication_with_PIs/finallist.', format(Sys.time(), "%Y%m%d"), '.csv')), row.names = F)
+################################################################################
+################################################################################
+
+#------------------------------------------------------------------------------#
+# preparing required daily Fluxnet2015 data ####
+#------------------------------------------------------------------------------#
+reqd.var <- c("TIMESTAMP", 
+              "TA_F", 
+              "SW_IN_F", 
+              "VPD_F", 
+              'NEE_VUT_REF',
+              'RECO_DT_VUT_REF', 
+              'GPP_DT_VUT_REF')
+
+dir.data   <- 'flux_data/Unzipped_Fluxnet2015_database_tier_2'
+filetype   <- 'FULLSET_DD'
+timestep   <- 'day'
+dir.out    <- "main_analysis/flux.data"
+FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
+ListSites  <- as.character(FinalSites$site)
+
+SitesFluxnet2015 <- list.files(dir.data)
+nodata <- NULL
+for(i in 1:length(ListSites)) {
+        if(length(grep(ListSites[i], SitesFluxnet2015)) == 1) {
+                
+                cat(paste('Reading data for site', ListSites[i]), '\n')
+                site_Filename<- list.files(file.path(dir.data, ListSites[i]), pattern = filetype, full.names = T)
+                
+                dataheader   <- names(read.table(site_Filename, nrow = 1, sep = ',', header = T))
+                col.var      <- which(dataheader %in% reqd.var)
+                
+                site_Data    <- data.table::fread(site_Filename, select = col.var)
+                write.csv(site_Data, file.path(dir.out, timestep, paste0('SEL_FLX_', ListSites[i], '_FLUXNET2015_', filetype, '.csv')), row.names = F)
+                
+        } else {nodata <- append(nodata, ListSites[i]) }
+}
+
+#------------------------------------------------------------------------------#
+# preparing required annual Fluxnet data ####
+#------------------------------------------------------------------------------#
+reqd.var <- c("TIMESTAMP", 
+              "TA_F", 
+              "SW_IN_F", 
+              "VPD_F", 
+              'NEE_VUT_REF',
+              'RECO_DT_VUT_REF', 
+              'GPP_DT_VUT_REF')
+
+dir.data   <- 'flux_data/Unzipped_Fluxnet2015_database_tier_2'
+filetype   <- 'FULLSET_YY'
+timestep   <- 'ann'
+dir.out    <- "main_analysis/flux.data"
+FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
+ListSites  <- as.character(FinalSites$site)
+
+SitesFluxnet2015 <- list.files(dir.data)
+nodata <- NULL
+for(i in 1:length(ListSites)) {
+        if(length(grep(ListSites[i], SitesFluxnet2015)) == 1) {
+                
+                cat(paste('Reading data for site', ListSites[i]), '\n')
+                site_Filename<- list.files(file.path(dir.data, ListSites[i]), pattern = filetype, full.names = T)
+                
+                dataheader   <- names(read.table(site_Filename, nrow = 1, sep = ',', header = T))
+                col.var      <- which(dataheader %in% reqd.var)
+                
+                site_Data    <- data.table::fread(site_Filename, select = col.var)
+                write.csv(site_Data, file.path(dir.out, timestep, paste0('SEL_FLX_', ListSites[i], '_FLUXNET2015_', filetype, '.csv')), row.names = F)
+                
+        } else {nodata <- append(nodata, ListSites[i]) }
+}
+
+#------------------------------------------------------------------------------#
+# Plotting half-hourly fluxnet2015 data ####
+#------------------------------------------------------------------------------#
+reqd.var <- c("TIMESTAMP_START", 
+              'NEE_VUT_REF',
+              "NEE_CUT_REF_QC" ,
+              'RECO_DT_VUT_REF', 
+              'GPP_DT_VUT_REF')
+
+dir.data <- 'flux_data/Unzipped_Fluxnet2015_database_tier_2'
+filetype <- 'FULLSET_HH'
+timestep <- 'HH'
+dir.out  <- "main_analysis/flux.data"
+FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
+ListSites  <- as.character(FinalSites$site)
+
+dir.out <- 'flux_data/fluxdata_compare'
+pdf(file.path(dir.out, 'halfhourly.plots.pdf'), compress = T)
+par(mfrow = c(4,3))
+par(mar = c(4,4,0.5,0.5))
+for(i in 1:length(ListSites)) {
+        cat(paste('plotting for', ListSites[i]), '\n')
+        site <- ListSites[i]
+        dir.site   <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(dir.site) == 1) {
+                filename   <- list.files(dir.site, pattern = filetype, full.names = T)
+                dataheader <- names(read.table(filename, nrow = 1, sep = ',', header = T))
+                col.var    <- which(dataheader %in% reqd.var)
+                data       <- data.table::fread(filename, select = col.var)
+                names(data)<- c('timestamp', 'NEE', 'NEE_QC', 'RECO', 'GPP')
+                data$time  <- ymd_hm(data$timestamp)
+                data$year  <- year(data$time)
+                
+                Years <- unique(data$year)
+                for(j in 1:length(Years)) {
+                        cat(paste('plotting for', ListSites[i], 'Year', Years[j]), '\n')
+                        with(data, plot(time[year == Years[j]], NEE[year == Years[j]], ylab = 'NEP', xlab = Years[j], pch = '.'))
+                        legend('bottomleft', paste(site, 'NEP'), bty = 'n')
+                        with(data, plot(time[year == Years[j]], GPP[year == Years[j]], ylab = 'GPP', xlab = Years[j], pch = '.'))
+                        legend('topleft', paste('GPP'), bty = 'n')
+                        with(data, plot(time[year == Years[j]], GPP[year == Years[j]], ylab = 'RECO', xlab = Years[j], pch = '.'))
+                        legend('topleft', paste('RECO'), bty = 'n')
+                }     
+        }
+        
+}
+dev.off()
+
+#------------------------------------------------------------------------------#
+# Plotting daily fluxnet2015 data ####
+#------------------------------------------------------------------------------#
+reqd.var <- c("TIMESTAMP", 
+              'NEE_VUT_REF',
+              "NEE_CUT_REF_QC" ,
+              'RECO_DT_VUT_REF', 
+              'GPP_DT_VUT_REF')
+
+dir.data   <- 'flux_data/Unzipped_Fluxnet2015_database_tier_2'
+filetype   <- 'FULLSET_DD'
+timestep   <- 'DD'
+dir.out    <- "main_analysis/flux.data"
+FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
+ListSites  <- as.character(FinalSites$site)
+
+dir.out <- 'flux_data/fluxdata_compare'
+pdf(file.path(dir.out, 'daily.plots.pdf'), compress = T)
+par(mfrow = c(4,3),
+    mar = c(4,4,0.5,0.5))
+
+for(i in 1:length(ListSites)) {
+        cat(paste('plotting for', ListSites[i]), '\n')
+        site <- ListSites[i]
+        dir.site   <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(dir.site) == 1) {
+                filename   <- list.files(dir.site, pattern = filetype, full.names = T)
+                dataheader <- names(read.table(filename, nrow = 1, sep = ',', header = T))
+                col.var    <- which(dataheader %in% reqd.var)
+                data       <- data.table::fread(filename, select = col.var)
+                names(data)<- c('timestamp', 'NEE', 'NEE_QC', 'RECO', 'GPP')
+                data$time  <- ymd(data$timestamp)
+                data$year  <- year(data$time)
+                
+                Years <- unique(data$year)
+                for(j in 1:length(Years)) {
+                        cat(paste('plotting for', ListSites[i], 'Year', Years[j]), '\n')
+                        with(data, plot(time[year == Years[j]], NEE[year == Years[j]], ylab = 'NEP', xlab = Years[j], pch = '.'))
+                        legend('bottomleft', paste(site, 'NEP'), bty = 'n')
+                        with(data, plot(time[year == Years[j]], GPP[year == Years[j]], ylab = 'GPP', xlab = Years[j], pch = '.'))
+                        legend('topleft', paste('GPP'), bty = 'n')
+                        with(data, plot(time[year == Years[j]], GPP[year == Years[j]], ylab = 'RECO', xlab = Years[j], pch = '.'))
+                        legend('topleft', paste('RECO'), bty = 'n')
+                }     
+        }
+}
+dev.off()
+
+#------------------------------------------------------------------------------#
+#### Function for plotting annual time series #### can be modified to for smaller timescales easily
+#------------------------------------------------------------------------------#
+timeseries_plot <- function(FileName, site) {
+        data           <- read.csv(FileName)
+        data           <- dplyr::select(data, 'TIMESTAMP', 'NEE_VUT_REF', 'RECO_DT_VUT_REF', 'GPP_DT_VUT_REF')
+        names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
+        data[data == -9999] <- NA
+        data$nep       <- -data$nee
+        
+        maxVal <- max(data$nep, data$reco, data$gpp, na.rm = T)
+        minVal <- min(data$nep, data$reco, data$gpp, na.rm = T)
+        
+        with(data, plot(timestamp, 
+                        nep, 
+                        xlab = '', 
+                        ylab = '',
+                        typ = 'l', 
+                        xlim = c(min(data$timestamp) -1, max(data$timestamp) + 1), 
+                        ylim = c(minVal, maxVal)
+        )
+        )
+        with(data, points(timestamp, nep, pch = 15))
+        
+        with(data, points(timestamp, gpp, pch = 16))
+        with(data, lines(timestamp, gpp, pch = 16))
+        
+        with(data, points(timestamp, reco, pch = 17))
+        with(data, lines(timestamp, reco, pch = 17))
+        
+        text(min(data$timestamp) + 1, minVal + 50, site)
+        
+        mtext(expression( "CO"[2]~ "["~ g ~ C ~ m^{-2}~ yr^{-1}~ ']'), side = 2, line = 2.2, cex = 0.8)
+}
+
+#------------------------------------------------------------------------------#
+#### PLotting annual flux timeseries ####
+#------------------------------------------------------------------------------#
+sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
+dir.data <- 'main_analysis/flux.data/ann'
+dir.out   <- 'main_analysis/flux.data/annual_flux_all_sites'
+
+pdf(file.path(dir.out, 'annual.plots.pdf'))
+par(mfrow = c(3,1))
+par(mar = c(4,4,0.5,0.5))
+for(j in 1:length(sitelistwithstructuredata)) {
+        site <- sitelistwithstructuredata[j]
+        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(FileName) == 1) {
+                timeseries_plot(FileName, site)     
+        }
+}
+dev.off()
+
 #------------------------------------------------------------------------------#
 #### PI flux_timeseries preparation function ####
 #------------------------------------------------------------------------------#
@@ -230,7 +543,6 @@ DataDaily <- dplyr::select(data, year, day, nep, gpp, reco, non_na_count)
 dir.out <-'flux_data/PI_flux_data'
 write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')), row.names = F)
 
-
 #------------------------------------------------------------------------------#
 #### compare annual PI_flux series with Fluxnet ####
 #------------------------------------------------------------------------------#
@@ -261,7 +573,6 @@ for(i in 1:length(ListSites)) {
         data <- merge(data.PIFlux, data.FluxNet2015, by = 'year')
         
         data <- dplyr::filter(data, na_count == 0)
-        
         
         for(j in 1:length(var)) {
                 dataVar <- data[ ,c(paste0(var[j], '.x'), paste0(var[j], '.y'))]
@@ -326,7 +637,6 @@ for(i in 1:length(ListSites)) {
         
         data <- dplyr::filter(data, non_na_count == 0)
         
-        
         for(j in 1:length(var)) {
                 dataVar <- data[ ,c(paste0(var[j], '.x'), paste0(var[j], '.y'))]
                 names(dataVar) <- c('PIFlux', 'FluxNet2015')
@@ -349,67 +659,15 @@ for(i in 1:length(ListSites)) {
                 abline(intercept, slope, lty = 2)
                 abline(0, 1, lty = 2, col = 2)
                 
-                legend('bottomright', paste('Y = ', intercept, '+', slope, 'X'), bty = 'n')
+                legend('bottomright', 
+                       paste('Y = ', intercept, '+', slope, 'X'), 
+                       bty = 'n')
         }
 }
 dev.off()
 
 #------------------------------------------------------------------------------#
-#### Function for plotting time series ####
-#------------------------------------------------------------------------------#
-timeseries_plot <- function(FileName, site) {
-        data           <- read.csv(FileName)
-        data           <- dplyr::select(data, 'TIMESTAMP', 'NEE_VUT_REF', 'RECO_DT_VUT_REF', 'GPP_DT_VUT_REF')
-        names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
-        data[data == -9999] <- NA
-        data$nep       <- -data$nee
-        
-        maxVal <- max(data$nep, data$reco, data$gpp, na.rm = T)
-        minVal <- min(data$nep, data$reco, data$gpp, na.rm = T)
-        
-        with(data, plot(timestamp, 
-                        nep, 
-                        xlab = '', 
-                        ylab = '',
-                        typ = 'l', 
-                        xlim = c(min(data$timestamp) -1, max(data$timestamp) + 1), 
-                        ylim = c(minVal, maxVal)
-        )
-        )
-        with(data, points(timestamp, nep, pch = 15))
-        
-        with(data, points(timestamp, gpp, pch = 16))
-        with(data, lines(timestamp, gpp, pch = 16))
-        
-        with(data, points(timestamp, reco, pch = 17))
-        with(data, lines(timestamp, reco, pch = 17))
-        
-        text(min(data$timestamp) + 1, minVal + 50, site)
-        
-        mtext(expression( "CO"[2]~ "["~ g ~ C ~ m^{-2}~ yr^{-1}~ ']'), side = 2, line = 2.2, cex = 0.8)
-}
-
-#------------------------------------------------------------------------------#
-#### PLotting flux timeseries ####
-#------------------------------------------------------------------------------#
-sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
-dir.data <- 'main_analysis/flux.data/ann'
-dir.out   <- 'main_analysis/flux.data/annual_flux_all_sites'
-
-pdf(file.path(dir.out, 'annual.plots.pdf'))
-par(mfrow = c(3,1))
-par(mar = c(4,4,0.5,0.5))
-for(j in 1:length(sitelistwithstructuredata)) {
-        site <- sitelistwithstructuredata[j]
-        FileName <- list.files(dir.data, pattern = site, full.names = T)
-        if(length(FileName) == 1) {
-                timeseries_plot(FileName, site)     
-        }
-}
-dev.off()
-
-#------------------------------------------------------------------------------#
-#### function for calculating average values for carbon dioxide fluxes ####
+#### Function for calculating annual averages for CO2 fluxes ####
 #------------------------------------------------------------------------------#
 timeseries_avg <- function(FileName,                                            # Filepath to the data
                            Problematic.Year,                                    # List of years when data are not good or unavailable
@@ -427,15 +685,14 @@ timeseries_avg <- function(FileName,                                            
         data[data == -9999] <- NA                                               # converting -9999 into NA
         data$nep       <- -data$nee                                             # getting nep
         
-        data2           <- dplyr::filter(data, !timestamp %in% Problematic.Year) # removing problematic year
+        data2      <- dplyr::filter(data, !timestamp %in% Problematic.Year) # removing problematic year
         
         ReqdVar    <- c('nep', 'reco', 'gpp')                                   # names of variable for result output
-        average    <- round(colMeans2(as.matrix(data2[,ReqdVar]), na.rm = T), 1)                      # calculating average using MatixStats package
-        stdDev     <- round(colSds(as.matrix(data2[,ReqdVar]), na.rm = T), 1)                         # calculating standard deviation using MatixStats package
-        CoefVar    <- round(100 * stdDev/abs(average), 1)                            # calculating coefficient of variation using MatixStats package
-        
+        average    <- round(colMeans2(as.matrix(data2[,ReqdVar]), na.rm = T), 1)# calculating average using MatixStats package
+        stdDev     <- round(colSds(as.matrix(data2[,ReqdVar]), na.rm = T), 1)   # calculating standard deviation using MatixStats package
+        CoefVar    <- round(100 * stdDev/abs(average), 1)                       # calculating coefficient of variation using MatixStats package
         results    <- data.frame(ReqdVar, average, stdDev, CoefVar)             # creating a dataframe of results
-        results$no.of.year <- nrow(data2)                                        # no of years with data available
+        results$no.of.year <- nrow(data2)                                       # no of years with data available
         results$site <- Site                                                    # Site for which statistics are calculated
         results$timestep <- timestep                                            # timesteps (daily, weekly, annual, ) 
         
