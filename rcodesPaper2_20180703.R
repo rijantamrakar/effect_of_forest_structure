@@ -234,6 +234,7 @@ write.csv(DataDaily, file.path(dir.out, paste0(site,'_PI_Flux_data_daily.csv')),
 #------------------------------------------------------------------------------#
 #### compare annual PI_flux series with Fluxnet ####
 #------------------------------------------------------------------------------#
+{
 dir.FluxNet2015 <- 'main_analysis/flux.data/ann'
 dir.PIFlux      <- 'flux_data/PI_flux_data'
 
@@ -287,7 +288,7 @@ for(i in 1:length(ListSites)) {
         }
 }
 dev.off()
-
+}
 
 #------------------------------------------------------------------------------#
 #### compare daily PI_flux series with Fluxnet ####
@@ -353,11 +354,63 @@ for(i in 1:length(ListSites)) {
 }
 dev.off()
 
+#------------------------------------------------------------------------------#
+#### Function for plotting time series ####
+#------------------------------------------------------------------------------#
+timeseries_plot <- function(FileName, site) {
+        data           <- read.csv(FileName)
+        data           <- dplyr::select(data, 'TIMESTAMP', 'NEE_VUT_REF', 'RECO_DT_VUT_REF', 'GPP_DT_VUT_REF')
+        names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
+        data[data == -9999] <- NA
+        data$nep       <- -data$nee
+        
+        maxVal <- max(data$nep, data$reco, data$gpp, na.rm = T)
+        minVal <- min(data$nep, data$reco, data$gpp, na.rm = T)
+        
+        with(data, plot(timestamp, 
+                        nep, 
+                        xlab = '', 
+                        ylab = '',
+                        typ = 'l', 
+                        xlim = c(min(data$timestamp) -1, max(data$timestamp) + 1), 
+                        ylim = c(minVal, maxVal)
+        )
+        )
+        with(data, points(timestamp, nep, pch = 15))
+        
+        with(data, points(timestamp, gpp, pch = 16))
+        with(data, lines(timestamp, gpp, pch = 16))
+        
+        with(data, points(timestamp, reco, pch = 17))
+        with(data, lines(timestamp, reco, pch = 17))
+        
+        text(min(data$timestamp) + 1, minVal + 50, site)
+        
+        mtext(expression( "CO"[2]~ "["~ g ~ C ~ m^{-2}~ yr^{-1}~ ']'), side = 2, line = 2.2, cex = 0.8)
+}
 
 #------------------------------------------------------------------------------#
-#### Timeseries flux plot annual function ####
+#### PLotting flux timeseries ####
 #------------------------------------------------------------------------------#
+sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
+dir.data <- 'main_analysis/flux.data/ann'
+dir.out   <- 'main_analysis/flux.data/annual_flux_all_sites'
 
+pdf(file.path(dir.out, 'annual.plots.pdf'))
+par(mfrow = c(3,1))
+par(mar = c(4,4,0.5,0.5))
+for(j in 1:length(sitelistwithstructuredata)) {
+        site <- sitelistwithstructuredata[j]
+        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(FileName) == 1) {
+                timeseries_plot(FileName, site)     
+        }
+}
+dev.off()
+
+#------------------------------------------------------------------------------#
+#### function for calculating average values for carbon dioxide fluxes ####
+#------------------------------------------------------------------------------#
 timeseries_avg <- function(FileName,                                            # Filepath to the data
                            Problematic.Year,                                    # List of years when data are not good or unavailable
                            Site,                                                # flux site name
@@ -421,7 +474,7 @@ timeseries_avg <- function(FileName,                                            
 }
 
 #------------------------------------------------------------------------------#
-#### Timeseries flux plot calculation ####
+#### calculating average values for carbon dioxide fluxes ####
 #------------------------------------------------------------------------------#
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 dir.data     <- 'main_analysis/flux.data/ann'
@@ -450,7 +503,7 @@ dir.out <- 'main_analysis/flux.data/annual_flux_all_sites'
 write.csv(AllResults, file.path(dir.out, 'annualco2fluxesstatistics.csv'), row.names = F)
 
 #------------------------------------------------------------------------------#
-#### Corelation with structural index at daily scale  ####
+#### Calculating corelation between structural index and co2 fluxes at daily scale  ####
 #------------------------------------------------------------------------------#
 stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
 anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies.csv'
@@ -486,8 +539,6 @@ for(i in 1:length(Var)) {
         anom.data.var <- dplyr::filter(anom.data, var == var[i])
         data <- merge(anom.data.var, stru.data, by = 'site')
         
-        
-        
         for(j in 1:length(YVar)) {
                 par(oma=c(0,4,0.5,0.5), mar = c(4,0,0,0))
                 par(mfrow=c(3,4))
@@ -516,10 +567,12 @@ for(i in 1:length(Var)) {
 
 
 #------------------------------------------------------------------------------#
-#### Corelation with structural index at annual scale  ####
+#### Calculating corelation between structural index and co2 fluxes at annual scale  ####
 #------------------------------------------------------------------------------#
+{
 stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
 anom.file <- 'main_analysis/flux.data/annual_flux_all_sites/annualco2fluxesstatistics.csv'
+dir.out   <- 'main_analysis/CorrelationBetweenAnoAndStruc'
 
 stru.data <- read.csv(stru.file)
 anom.data <- read.csv(anom.file)
@@ -527,16 +580,12 @@ Var       <- c('nep', 'gpp', 'reco')
 YVar      <- c("average", 
                "CoefVar")
 
-XVar       <- c("CVDBH",
-                "meanDBH",
-                "sdDBH",
+XVar       <- c("meanDBH",
+                "CVDBH",
                 "ShannonSize",
                 "ShannonSps",
                 "shapeWeibull",
-                "SimpsonSize",
-                "SimpsonSps",
-                "TotalSpeciesRichnessBA95"
-)
+                "TotalSpeciesRichnessBA95")
 
 resultsCorr <- NULL
 for(i in 1:length(Var)) {
@@ -544,8 +593,21 @@ for(i in 1:length(Var)) {
         data <- merge(anom.data.var, stru.data, by = 'site')
         
         for(j in 1:length(YVar)) {
-                par(oma=c(0,4,0.5,0.5), mar = c(4,0,0,0))
-                par(mfrow=c(3,3))
+                PlotName <- paste(Var[i], 
+                                  YVar[j], 
+                                  'Correlation.structural.Index.annual.jpeg', 
+                                  sep = '.')
+                jpeg(file=file.path(dir.out, PlotName),
+                     width  = 90,
+                     height = 160, 
+                     units  = 'mm', 
+                     res    = 300
+                     )
+                par(oma = c(0,4,0.5,0.5), 
+                    mar = c(4,0,0,0),
+                    mfrow=c(3,2)
+                    )
+                
                 for(k in 1:length(XVar)) {
                         dataYXvar <- data[, c(YVar[j], XVar[k])]
                         names(dataYXvar) <- c('YVar', 'XVar')
@@ -553,14 +615,16 @@ for(i in 1:length(Var)) {
                         maxY <- max(dataYXvar$YVar)
                         
                         corrResults <- cor.test(dataYXvar$YVar, dataYXvar$XVar)
-                        pVal <- corrResults$p.value
-                        corrValue <- cor(dataYXvar$YVar, dataYXvar$XVar)
+                        pVal        <- corrResults$p.value
+                        corrValue   <- cor(dataYXvar$YVar, dataYXvar$XVar)
                         
-                        resultsCorr <- rbind(resultsCorr, c('Var' = Var[i],
-                                                            'YVar' = YVar[j],
-                                                            'XVar' = XVar[k],
-                                                            'corrVal' = corrValue,
-                                                            'pVal' = pVal))
+                        resultsCorr <- rbind(resultsCorr, 
+                                             c('Var' = Var[i],
+                                               'YVar' = YVar[j],
+                                               'XVar' = XVar[k],
+                                               'corrVal' = corrValue,
+                                               'Rsq' = round(corrValue^2, 2), 
+                                               'pVal' = pVal))
                         
                         with(dataYXvar, plot(XVar, 
                                              YVar, 
@@ -568,12 +632,22 @@ for(i in 1:length(Var)) {
                                              xlab = '', 
                                              ylab = '')
                         )
-                        if(k %in% c(1,4,7)) axis(2, at = round(seq(minY, maxY, by = (maxY - minY)/4)), labels = T)
+                        if(k %in% c(1,3,5)) 
+                                axis(2, 
+                                     at = round(seq(minY, maxY, by = (maxY - minY)/4)), 
+                                     labels = T)
                         
                         mtext(XVar[k], outer = F, side = 1,  line = 2.2, cex = 0.8)
+                        legend('topright', paste('corr =', round(corrValue, 2)), bty = 'n')
                         
-                }
+                } # end for all dependent variable
                 mtext(paste(YVar[j], Var[i]), outer = T, side = 2,  line = 2.2, cex = 0.8)
-        }
+                dev.off()
+        } # end for all independent variables Yvar
+} # end for all carbon dioxide variables
+FileName <- paste(Var[i], 
+                  YVar[j], 
+                  'Correlation.structural.Index.annual.csv', 
+                  sep = '.')
+write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 }
-
