@@ -3,4 +3,8 @@ It is necessary that I know what I do daily.
 Date: 20180703
 1. Learnt git hub and now have learnt how to branch.
 2. Comparing different sets of flux data (fluxnet, and PI)
-3. Plot structural indices versus annual statistics of carbon dioxide fluxes. 
+3. Plot structural indices versus annual statistics of carbon dioxide fluxes.
+
+Date: 20180704
+1. added anomaly calculation
+2. plotted daily anomaly files in pdf with removed and not removed trend.
