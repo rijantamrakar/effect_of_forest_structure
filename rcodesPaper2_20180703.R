@@ -908,3 +908,128 @@ FileName <- paste(Var[i],
                   sep = '.')
 write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 }
+
+
+
+#------------------------------------------------------------------------------#
+#### Anomaly calculation function ####
+#------------------------------------------------------------------------------#
+anomaly_calculation <- function(FileName, site, Plot, Freq, dir.plot) {
+        data <- read.csv(FileName)
+        data[data == -9999] <- NA
+        var  <- c('nep', 'gpp', 'reco')
+        ReturnResults <- NULL
+        for(i in 1:length(var)) {
+                cat('calculating extreme data of', var[i], 'for site', site, '\n')
+                reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')))
+                dataVar     <- data[ ,reqdVar]
+                names(dataVar) <- c('year', 'doy', 'var', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')
+                
+                dataVar2 <- na.omit(dataVar)
+                
+                if(var[i] == 'reco') {
+                        maxPositiveZscore  <- abs(min(dataVar2$zrandom, na.rm = T))
+                        quantile_995z      <- as.numeric(quantile(abs(dataVar2$zrandom[dataVar2$zrandom < 0]), 0.995, na.rm = T))
+                        HigherNegativeTail995 <- -quantile_995z + max(dataVar2$zrandom, na.rm = T)
+                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom > quantile_995z]))/sum(dataVar2$abszrandom)
+                        daysUnderHigherNegativeTail995 <- length(dataVar2$zrandom[dataVar2$zrandom > quantile_995z])
+                        PerCentdaysUnderHigherNegativeTail995 <- 100* length(dataVar2$zrandom[dataVar2$zrandom > quantile_995z])/nrow(dataVar2)
+                        
+                        HigherNegativeTail100 <- -maxPositiveZscore + max(dataVar2$zrandom)
+                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore]))/sum(dataVar2$abszrandom)
+                        daysUnderHigherNegativeTail100 <- length(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore])
+                        PerCentdaysUnderHigherNegativeTail100 <- 100* length(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore])/nrow(dataVar2)
+                } else {
+                        maxPositiveZscore <- max(dataVar2$zrandom, na.rm = T)
+                        quantile_995z      <- as.numeric(quantile(dataVar2$zrandom[dataVar2$zrandom > 0], 0.995, na.rm = T))
+                        HigherNegativeTail995 <- -quantile_995z - min(dataVar2$zrandom)
+                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z]))/sum(dataVar2$abszrandom)
+                        daysUnderHigherNegativeTail995 <- length(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z])
+                        PerCentdaysUnderHigherNegativeTail995 <- 100 * length(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z])/nrow(dataVar2)
+                        
+                        HigherNegativeTail100 <- -maxPositiveZscore - min(dataVar2$zrandom)
+                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore]))/sum(dataVar2$abszrandom)
+                        daysUnderHigherNegativeTail100 <- length(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore])
+                        PerCentdaysUnderHigherNegativeTail100 <- 100 * length(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore]) / nrow(dataVar2)
+                }
+                
+                ReturnResults <- rbind(ReturnResults, c('site' = site, 
+                                                        'var' = var[i],
+                                                        'HigherNegativeTail995' = HigherNegativeTail995,
+                                                        'areaUnderHigherNegativeTail995' = areaUnderHigherNegativeTail995,
+                                                        'daysUnderHigherNegativeTail995' = daysUnderHigherNegativeTail995,
+                                                        'PerCentdaysUnderHigherNegativeTail995' = PerCentdaysUnderHigherNegativeTail995,
+                                                        'HigherNegativeTail100' = HigherNegativeTail100,
+                                                        'areaUnderHigherNegativeTail100' = areaUnderHigherNegativeTail100,
+                                                        'daysUnderHigherNegativeTail100' = daysUnderHigherNegativeTail100,
+                                                        'PerCentdaysUnderHigherNegativeTail100' = PerCentdaysUnderHigherNegativeTail100
+                )
+                )
+                
+                # plot decomposed data
+                if(Plot == 'YES') {
+                        cat(paste('creating plot of', var[i], 'for site', site), '\n')
+                        jpeg(file=file.path(dir.plot, paste(site, var[i], 'anomaly_detection', 'jpeg', sep = '.')), width= 190, height=210, units='mm', res=300)
+                        par(oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
+                        par(mfrow=c(3,1))
+                        plot.ts(ts(dataVar$var, start=c(startyear,1,1), frequency=Freq), lty = 2, xaxt = 'n')
+                        if (var[i] == 'nep') mtext(expression(NEP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'gpp') mtext(expression(GPP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'reco') mtext(expression(Reco ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        lines(ts(dataVar$trend, start=c(startyear,1,1), frequency=Freq))
+                        
+                        plot.ts(ts(dataVar$seasonal, start=c(startyear,1,1), frequency=Freq), lty = 1, col=1, xaxt = 'n')
+                        if (var[i] == 'nep') mtext(expression(NEP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'gpp') mtext(expression(GPP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'reco') mtext(expression(Reco[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        
+                        plot.ts(ts(dataVar$random, start=c(startyear,1,1), frequency=Freq), lty = 1, col=1, typ = 'p')
+                        if (var[i] == 'nep') mtext(expression(NEP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'gpp') mtext(expression(GPP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (var[i] == 'reco') mtext(expression(Reco[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        abline(h=0)
+                        
+                        if(var[i] == 'reco') {
+                                maxPositiveZscore <- -min(dataVar$random, na.rm = T)
+                                quantile_995      <- as.numeric(quantile(abs(dataVar$random[dataVar$random < 0]), 0.995, na.rm = T))
+                                dataRandom        <- ts(dataVar$random, start=c(startyear,1,1), frequency=Freq)
+                                dataRandom995     <- ifelse(dataRandom < quantile_995, NA, dataRandom)
+                                dataRandommax     <- ifelse(dataRandom < maxPositiveZscore, NA, dataRandom)   
+                        } else {
+                                maxPositiveZscore <- max(dataVar$random, na.rm = T)
+                                quantile_995      <- as.numeric(quantile(dataVar$random[dataVar$random > 0], 0.995, na.rm = T))
+                                dataRandom        <- ts(dataVar$random, start=c(startyear,1,1), frequency=Freq)
+                                dataRandom995     <- ifelse(dataRandom > -quantile_995, NA, dataRandom)
+                                dataRandommax     <- ifelse(dataRandom > -maxPositiveZscore, NA, dataRandom)
+                        }
+                        
+                        points(dataRandom995, col=3, typ = 'p')
+                        points(dataRandommax, col=2, typ = 'p')
+                        
+                        dev.off()
+                } 
+        }
+        return(ReturnResults)
+}
+
+#------------------------------------------------------------------------------#
+#### Anomaly calculation  ####
+#------------------------------------------------------------------------------#
+dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
+sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
+dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
+dir.out  <- 'main_analysis/anomaly_detection/daily'
+Plot <- 'NO'
+Freq <- 180
+resultsAll <- NULL
+for(j in 1:length(sitelist)) {
+        site <- sitelist[j]
+        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(FileName) == 1) {
+                site.data <- anomaly_calculation (FileName, site, Plot, Freq, dir.plot)
+                resultsAll<- rbind(resultsAll, site.data)
+                
+        }
+}
+write.csv(resultsAll, file.path(dir.out, 'daily_anomalies.csv'), row.names = F)
+
