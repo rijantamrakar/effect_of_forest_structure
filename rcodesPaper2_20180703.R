@@ -912,12 +912,26 @@ write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 #------------------------------------------------------------------------------#
 #### Function: daily timeseries decomposition ####
 #------------------------------------------------------------------------------#
-timeseries_decompositon_daily <- function(FileName, site) {
+ts_decompositon_daily <- function(FileName, 
+                                  Site, 
+                                  Problematic.Year 
+                                  ) {
         data           <- read.csv(FileName)
-        data           <- dplyr::select(data, 'TIMESTAMP', 'NEE_VUT_REF', 'RECO_DT_VUT_REF', 'GPP_DT_VUT_REF')
+        data           <- dplyr::select(data, 
+                                        'TIMESTAMP', 
+                                        'NEE_VUT_REF', 
+                                        'RECO_DT_VUT_REF', 
+                                        'GPP_DT_VUT_REF'
+                                        )
+        
         names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
         data$timestamp <- ymd(data$timestamp, tz = 'GMT')
         data$year      <- year(data$timestamp)
+        
+        data$nee       <- with(data, ifelse(year %in% Problematic.Year, NA, data$nee))
+        data$reco      <- with(data, ifelse(year %in% Problematic.Year, NA, data$reco))
+        data$gpp       <- with(data, ifelse(year %in% Problematic.Year, NA, data$gpp))
+        
         data$doy       <- yday(data$timestamp)
         data           <- dplyr::arrange(data, year, doy)
         data[data == -9999] <- NA
@@ -929,13 +943,16 @@ timeseries_decompositon_daily <- function(FileName, site) {
         endyear   <- data[nrow(data), 'year']
         Freq = 180
         var <- c('nep', 'gpp', 'reco') 
-        DataReturn <- data.frame('year' = rep(c(startyear:endyear), each = Freq), 'doy' = rep(c(121:300), length(unique(c(startyear:endyear)))))
+        DataReturn <- data.frame('year' = rep(c(startyear:endyear), each = Freq), 
+                                 'doy' = rep(c(121:300), length(unique(c(startyear:endyear))))
+        )
         for(i in 1:length(var)) {
                 dataVar <- data[,c('year', 'doy', var[i])] 
                 names(dataVar) <- c('year', 'doy', 'var')
-                datats <- ts(dataVar$var, start=c(startyear,1,1), frequency=Freq)
                 
-                # calculate trend based on modelling the seasonal cycle
+                #--------------------------------------------------------------#
+                # calculate trend based using annual averages
+                datats <- ts(dataVar$var, start=c(startyear,1,1), frequency=Freq)
                 trd  <- try(Trend(datats, method="AAT"))
                 pval <- trd$pval 
                 
@@ -947,28 +964,36 @@ timeseries_decompositon_daily <- function(FileName, site) {
                         dataVar$trend <- mean(dataVar$var, na.rm = T)
                 }
                 
-                # detrend the data 
+                # detrending the data 
                 dataVar$detrendVar <- dataVar$var-dataVar$trend
-                
+                # calculating seasonal cycle after removing trend
                 seasonalcycle <- dataVar %>%
                         group_by(doy) %>%
                         summarise(seasonalVar = mean(detrendVar, na.rm = T))
+                # merging seasonal data with main dataset
+                dataVar<- merge(dataVar, 
+                                seasonalcycle, 
+                                by='doy', 
+                                all = T)
                 
+                # random component calculated after trend and seasonal cycle is removed
+                dataVar$random     <- dataVar$var - dataVar$trend - dataVar$seasonalVar
+                # z score of random component
+                dataVar$zrandom    <- (dataVar$random - mean(dataVar$random, na.rm = T))/sd(dataVar$random, na.rm = T)
+                # absolute z score of random component
+                dataVar$abszrandom <- abs(dataVar$zrandom)
+                
+                #--------------------------------------------------------------#
+                # seasonal cycle two doesn't consider the trend in data
                 seasonalcycle2 <- dataVar %>%
                         group_by(doy) %>%
                         summarise(seasonalVar2 = mean(var, na.rm = T))
-                
-                dataVar <- merge(dataVar, seasonalcycle, by='doy', all = T)
-                dataVar$random <- dataVar$var - dataVar$trend - dataVar$seasonalVar
-                dataVar$zrandom <- (dataVar$random - mean(dataVar$random, na.rm = T))/sd(dataVar$random, na.rm = T)
-                dataVar$abszrandom <- abs(dataVar$zrandom)
-                
                 
                 dataVar <- merge(dataVar, seasonalcycle2, by='doy', all = T)
                 dataVar$random2 <- dataVar$var - dataVar$seasonalVar2
                 dataVar$zrandom2 <- (dataVar$random2 - mean(dataVar$random2, na.rm = T))/sd(dataVar$random2, na.rm = T)
                 dataVar$abszrandom2 <- abs(dataVar$zrandom2)
-                
+                #--------------------------------------------------------------#
                 names(dataVar) <- c('doy', 
                                     'year', 
                                     var[i], 
@@ -978,20 +1003,21 @@ timeseries_decompositon_daily <- function(FileName, site) {
                                     paste0(var[i], 'random'),
                                     paste0(var[i], 'zrandom'),
                                     paste0(var[i], 'abszrandom'),
+                                    paste0(var[i], 'seasonal2'),
                                     paste0(var[i], 'random2'),
                                     paste0(var[i], 'zrandom2'),
                                     paste0(var[i], 'abszrandom2')
                 )
                 
                 DataReturn <- merge(DataReturn, dataVar, by = c('year', 'doy'))
-        } 
+        } # end for analysis for ith co2 component
         DataReturn[is.na(DataReturn)] <- -9999
-        DataReturn$site <- site
+        DataReturn$site <- Site
         return(DataReturn)
-}
+} # end of the funtion
 
 #------------------------------------------------------------------------------#
-#### Daily timeseries decomposition ####
+#### Daily ts decomposition ####
 #------------------------------------------------------------------------------#
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 
@@ -1001,30 +1027,41 @@ dir.out   <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
 data.problem <- read.csv('main_analysis/flux.data/Data_with_problem.csv')
 
 for(j in 1:length(sitelistwithstructuredata)) {
-        site <- sitelistwithstructuredata[j]
-        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        Site <- sitelistwithstructuredata[j]
+        FileName <- list.files(dir.data, pattern = Site, full.names = T)
         if(length(FileName) == 1) {
                 data.problem.for.site <- data.problem %>%
                         filter(site == Site) %>%
                         filter(dont_use_annual == 1)
-                site.data <- timeseries_decompositon_daily (FileName, site) 
-                write.csv(site.data, file.path(dir.out, paste0(site, '_flux_ts_decomposed.csv')), row.names = F)
+                Problematic.Year <- data.problem.for.site$Not_good_year
+                site.data <- ts_decompositon_daily (FileName, Site, Problematic.Year) 
+                write.csv(site.data, file.path(dir.out, paste0(Site, '_flux_ts_decomposed.csv')), row.names = F)
         }
 }
 
 #------------------------------------------------------------------------------#
 #### Anomaly calculation function ####
 #------------------------------------------------------------------------------#
-anomaly_calculation <- function(FileName, site, Problematic.Year, Plot, Freq, dir.plot) {
+anomaly_calculation <- function(FileName, site, randomtype, Plot, Freq, dir.plot) {
         data <- read.csv(FileName)
         data[data == -9999] <- NA
         var  <- c('nep', 'gpp', 'reco')
         ReturnResults <- NULL
         for(i in 1:length(var)) {
                 cat('calculating extreme data of', var[i], 'for site', site, '\n')
-                reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')))
+                
+                if(randomtype == 'TrendRemoved') {
+                        reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')))
+                } else {
+                        reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal2', 'random2', 'zrandom2', 'abszrandom2')))
+                }
+                
                 dataVar     <- data[ ,reqdVar]
                 names(dataVar) <- c('year', 'doy', 'var', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')
+                
+                if(randomtype != 'TrendRemoved') {
+                      dataVar$trend <- mean(dataVar$var, na.rm = T)
+                } 
                 
                 dataVar2 <- na.omit(dataVar)
                 
@@ -1064,31 +1101,29 @@ anomaly_calculation <- function(FileName, site, Problematic.Year, Plot, Freq, di
                                                         'areaUnderHigherNegativeTail100' = areaUnderHigherNegativeTail100,
                                                         'daysUnderHigherNegativeTail100' = daysUnderHigherNegativeTail100,
                                                         'PerCentdaysUnderHigherNegativeTail100' = PerCentdaysUnderHigherNegativeTail100
-                )
-                )
+                                                        )
+                                       ) # end of rbind
                 
                 # plot decomposed data
                 if(Plot == 'YES') {
                         cat(paste('creating plot of', var[i], 'for site', site), '\n')
-                        jpeg(file=file.path(dir.plot, paste(site, var[i], 'anomaly_detection', 'jpeg', sep = '.')), width= 190, height=210, units='mm', res=300)
-                        par(oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
-                        par(mfrow=c(3,1))
                         plot.ts(ts(dataVar$var, start=c(startyear,1,1), frequency=Freq), lty = 2, xaxt = 'n')
                         if (var[i] == 'nep') mtext(expression(NEP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'gpp') mtext(expression(GPP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'reco') mtext(expression(Reco ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        lines(ts(dataVar$trend, start=c(startyear,1,1), frequency=Freq))
+                        lines(ts(dataVar$trend, start=c(startyear,1,1), frequency=Freq), col = 2)
+                        legend('topleft', paste(site, var[i], randomtype), bty = 'n')
                         
                         plot.ts(ts(dataVar$seasonal, start=c(startyear,1,1), frequency=Freq), lty = 1, col=1, xaxt = 'n')
                         if (var[i] == 'nep') mtext(expression(NEP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'gpp') mtext(expression(GPP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'reco') mtext(expression(Reco[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         
-                        plot.ts(ts(dataVar$random, start=c(startyear,1,1), frequency=Freq), lty = 1, col=1, typ = 'p')
+                        plot.ts(ts(dataVar$random, start=c(startyear,1,1), frequency=Freq), col=1, typ = 'p', pch = '.')
                         if (var[i] == 'nep') mtext(expression(NEP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'gpp') mtext(expression(GPP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         if (var[i] == 'reco') mtext(expression(Reco[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        abline(h=0)
+                        abline(h=0, col = 2)
                         
                         if(var[i] == 'reco') {
                                 maxPositiveZscore <- -min(dataVar$random, na.rm = T)
@@ -1106,41 +1141,64 @@ anomaly_calculation <- function(FileName, site, Problematic.Year, Plot, Freq, di
                         
                         points(dataRandom995, col=3, typ = 'p')
                         points(dataRandommax, col=2, typ = 'p')
-                        
-                        dev.off()
-                } 
-        }
+                } # end of plot when requested 
+        } # end of anomaly calculation for ith co2 var
         return(ReturnResults)
 }
 
 #------------------------------------------------------------------------------#
-#### Anomaly calculation  ####
+#### Daily Anomaly calculation  ####
 #------------------------------------------------------------------------------#
 dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
 sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
 dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
 dir.out  <- 'main_analysis/anomaly_detection/daily'
-
-Plot <- 'NO'
+Plot <- 'YES'
 Freq <- 180
 resultsAll <- NULL
+
+{
+randomtype <- 'TrendRemoved' # 'TrendKept'
+pdf(file.path(dir.out, 'dailyTrendRemovedAnomaly.plots.pdf'))
+par(mfrow=c(3,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
+
 for(j in 1:length(sitelist)) {
         site <- sitelist[j]
         FileName <- list.files(dir.data, pattern = site, full.names = T)
         if(length(FileName) == 1) {
-                data.problem.for.site <- data.problem %>%
-                        filter(site == Site) %>%
-                        filter(dont_use_annual == 1)
                 
                 site.data <- anomaly_calculation (FileName, 
                                                   site, 
-                                                  Problematic.Year, 
+                                                  randomtype,
                                                   Plot, 
                                                   Freq, 
                                                   dir.plot)
                 resultsAll<- rbind(resultsAll, site.data)
-                
         }
 }
-write.csv(resultsAll, file.path(dir.out, 'daily_anomalies.csv'), row.names = F)
+dev.off()
+write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Removed.csv'), row.names = F)
+}
 
+{
+        randomtype <- 'TrendKept' # 'TrendRemoved'
+        pdf(file.path(dir.out, 'dailyTrendKeptAnomaly.plots.pdf'))
+        par(mfrow=c(3,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
+        
+        for(j in 1:length(sitelist)) {
+                site <- sitelist[j]
+                FileName <- list.files(dir.data, pattern = site, full.names = T)
+                if(length(FileName) == 1) {
+                        
+                        site.data <- anomaly_calculation (FileName, 
+                                                          site, 
+                                                          randomtype,
+                                                          Plot, 
+                                                          Freq, 
+                                                          dir.plot)
+                        resultsAll<- rbind(resultsAll, site.data)
+                }
+        }
+        dev.off()
+        write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Kept.csv'), row.names = F)
+}
