@@ -909,12 +909,113 @@ FileName <- paste(Var[i],
 write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 }
 
+#------------------------------------------------------------------------------#
+#### Function: daily timeseries decomposition ####
+#------------------------------------------------------------------------------#
+timeseries_decompositon_daily <- function(FileName, site) {
+        data           <- read.csv(FileName)
+        data           <- dplyr::select(data, 'TIMESTAMP', 'NEE_VUT_REF', 'RECO_DT_VUT_REF', 'GPP_DT_VUT_REF')
+        names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
+        data$timestamp <- ymd(data$timestamp, tz = 'GMT')
+        data$year      <- year(data$timestamp)
+        data$doy       <- yday(data$timestamp)
+        data           <- dplyr::arrange(data, year, doy)
+        data[data == -9999] <- NA
+        data$nep       <- -data$nee
+        
+        # doing data analysis for growing season
+        data <- dplyr::filter(data, doy > 120, doy < 301)
+        startyear <- data[1, 'year']
+        endyear   <- data[nrow(data), 'year']
+        Freq = 180
+        var <- c('nep', 'gpp', 'reco') 
+        DataReturn <- data.frame('year' = rep(c(startyear:endyear), each = Freq), 'doy' = rep(c(121:300), length(unique(c(startyear:endyear)))))
+        for(i in 1:length(var)) {
+                dataVar <- data[,c('year', 'doy', var[i])] 
+                names(dataVar) <- c('year', 'doy', 'var')
+                datats <- ts(dataVar$var, start=c(startyear,1,1), frequency=Freq)
+                
+                # calculate trend based on modelling the seasonal cycle
+                trd  <- try(Trend(datats, method="AAT"))
+                pval <- trd$pval 
+                
+                if(pval <= 0.1) {
+                        DataTrend <- data.frame('year' = rep(c(startyear:endyear), 1))
+                        DataTrend$trend <- trd$trend 
+                        dataVar <- merge(dataVar, DataTrend, by = 'year')
+                } else {
+                        dataVar$trend <- mean(dataVar$var, na.rm = T)
+                }
+                
+                # detrend the data 
+                dataVar$detrendVar <- dataVar$var-dataVar$trend
+                
+                seasonalcycle <- dataVar %>%
+                        group_by(doy) %>%
+                        summarise(seasonalVar = mean(detrendVar, na.rm = T))
+                
+                seasonalcycle2 <- dataVar %>%
+                        group_by(doy) %>%
+                        summarise(seasonalVar2 = mean(var, na.rm = T))
+                
+                dataVar <- merge(dataVar, seasonalcycle, by='doy', all = T)
+                dataVar$random <- dataVar$var - dataVar$trend - dataVar$seasonalVar
+                dataVar$zrandom <- (dataVar$random - mean(dataVar$random, na.rm = T))/sd(dataVar$random, na.rm = T)
+                dataVar$abszrandom <- abs(dataVar$zrandom)
+                
+                
+                dataVar <- merge(dataVar, seasonalcycle2, by='doy', all = T)
+                dataVar$random2 <- dataVar$var - dataVar$seasonalVar2
+                dataVar$zrandom2 <- (dataVar$random2 - mean(dataVar$random2, na.rm = T))/sd(dataVar$random2, na.rm = T)
+                dataVar$abszrandom2 <- abs(dataVar$zrandom2)
+                
+                names(dataVar) <- c('doy', 
+                                    'year', 
+                                    var[i], 
+                                    paste0(var[i], 'trend'), 
+                                    paste0(var[i], 'detrended'),
+                                    paste0(var[i], 'seasonal'),
+                                    paste0(var[i], 'random'),
+                                    paste0(var[i], 'zrandom'),
+                                    paste0(var[i], 'abszrandom'),
+                                    paste0(var[i], 'random2'),
+                                    paste0(var[i], 'zrandom2'),
+                                    paste0(var[i], 'abszrandom2')
+                )
+                
+                DataReturn <- merge(DataReturn, dataVar, by = c('year', 'doy'))
+        } 
+        DataReturn[is.na(DataReturn)] <- -9999
+        DataReturn$site <- site
+        return(DataReturn)
+}
 
+#------------------------------------------------------------------------------#
+#### Daily timeseries decomposition ####
+#------------------------------------------------------------------------------#
+sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
+
+dir.data  <- 'main_analysis/flux.data/day'
+dir.out   <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
+
+data.problem <- read.csv('main_analysis/flux.data/Data_with_problem.csv')
+
+for(j in 1:length(sitelistwithstructuredata)) {
+        site <- sitelistwithstructuredata[j]
+        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(FileName) == 1) {
+                data.problem.for.site <- data.problem %>%
+                        filter(site == Site) %>%
+                        filter(dont_use_annual == 1)
+                site.data <- timeseries_decompositon_daily (FileName, site) 
+                write.csv(site.data, file.path(dir.out, paste0(site, '_flux_ts_decomposed.csv')), row.names = F)
+        }
+}
 
 #------------------------------------------------------------------------------#
 #### Anomaly calculation function ####
 #------------------------------------------------------------------------------#
-anomaly_calculation <- function(FileName, site, Plot, Freq, dir.plot) {
+anomaly_calculation <- function(FileName, site, Problematic.Year, Plot, Freq, dir.plot) {
         data <- read.csv(FileName)
         data[data == -9999] <- NA
         var  <- c('nep', 'gpp', 'reco')
@@ -1019,6 +1120,7 @@ dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
 sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
 dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
 dir.out  <- 'main_analysis/anomaly_detection/daily'
+
 Plot <- 'NO'
 Freq <- 180
 resultsAll <- NULL
@@ -1026,7 +1128,16 @@ for(j in 1:length(sitelist)) {
         site <- sitelist[j]
         FileName <- list.files(dir.data, pattern = site, full.names = T)
         if(length(FileName) == 1) {
-                site.data <- anomaly_calculation (FileName, site, Plot, Freq, dir.plot)
+                data.problem.for.site <- data.problem %>%
+                        filter(site == Site) %>%
+                        filter(dont_use_annual == 1)
+                
+                site.data <- anomaly_calculation (FileName, 
+                                                  site, 
+                                                  Problematic.Year, 
+                                                  Plot, 
+                                                  Freq, 
+                                                  dir.plot)
                 resultsAll<- rbind(resultsAll, site.data)
                 
         }
