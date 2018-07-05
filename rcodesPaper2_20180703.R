@@ -569,7 +569,6 @@ DiameterDistribution <- function (Filename,
         return(resultsInd)
 }
 
-
 #------------------------------------------------------------------------------#
 #### Function for calculating Index for inventory data ####
 #------------------------------------------------------------------------------#
@@ -668,7 +667,7 @@ write.csv(res.all2, 'structural_index/results/structural.index.csv', row.names =
 #------------------------------------------------------------------------------#
 #### Calculating Index for any additional site with inventory data ####
 #------------------------------------------------------------------------------#
-data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
 sites.complete        <- unique(as.character(data.structure.forest$site))
 
 Dir.In     <- 'Structural_index/final_data'
@@ -1333,70 +1332,6 @@ dir.out <- 'main_analysis/flux.data/annual_flux_all_sites'
 write.csv(AllResults, file.path(dir.out, 'annualco2fluxesstatistics.csv'), row.names = F)
 
 #------------------------------------------------------------------------------#
-#### Calculating corelation between structural index and co2 fluxes at daily scale  ####
-#------------------------------------------------------------------------------#
-stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
-anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies.csv'
-
-stru.data <- read.csv(stru.file)
-anom.data <- read.csv(anom.file)
-Var       <- c('gpp') #, 'gpp', 'reco')
-YVar      <- c("HigherNegativeTail995", 
-               "areaUnderHigherNegativeTail995",
-               "daysUnderHigherNegativeTail995",
-               "PerCentdaysUnderHigherNegativeTail995",
-               "HigherNegativeTail100",
-               "areaUnderHigherNegativeTail100",
-               "daysUnderHigherNegativeTail100",
-               "PerCentdaysUnderHigherNegativeTail100")
-
-XVar       <- c("CVDBH",
-                "meanDBH",
-                "noTreeperHa",
-                "scaleWeibull",
-                "sdDBH",
-                "ShannonSize",
-                "ShannonSps",
-                "shapeWeibull",
-                "SimpsonSize",
-                "SimpsonSps",
-                "TBAm2ha",
-                "TotalSpeciesRichnessBA95"
-)
-
-resultsCorr <- NULL
-for(i in 1:length(Var)) {
-        anom.data.var <- dplyr::filter(anom.data, var == var[i])
-        data <- merge(anom.data.var, stru.data, by = 'site')
-        
-        for(j in 1:length(YVar)) {
-                par(oma=c(0,4,0.5,0.5), mar = c(4,0,0,0))
-                par(mfrow=c(3,4))
-                for(k in 1:length(XVar)) {
-                        dataYXvar <- data[, c(YVar[j], XVar[k])]
-                        names(dataYXvar) <- c('YVar', 'XVar')
-                        corrResults <- cor.test(dataYXvar$YVar, dataYXvar$XVar)
-                        pVal <- corrResults$p.value
-                        corrValue <- cor(dataYXvar$YVar, dataYXvar$XVar)
-                        
-                        resultsCorr <- rbind(resultsCorr, c('Var' = Var[i],
-                                                            'YVar' = YVar[j],
-                                                            'XVar' = XVar[k],
-                                                            'corrVal' = corrValue,
-                                                            'pVal' = pVal))
-                        
-                        with(dataYXvar, plot(XVar, YVar, yaxt = 'n', xlab = ''))
-                        mtext(XVar[k], outer = F, side = 1,  line = 2.2, cex = 0.8)
-                        
-                }
-                mtext(YVar[j], outer = T, side = 2,  line = 2.2, cex = 0.8)
-        }
-        
-        
-}
-
-
-#------------------------------------------------------------------------------#
 #### Calculating corelation between structural index and co2 fluxes at annual scale  ####
 #------------------------------------------------------------------------------#
 {
@@ -1720,7 +1655,7 @@ anomaly_calculation <- function(FileName, site, randomtype, Plot, Freq, dir.plot
 }
 
 #------------------------------------------------------------------------------#
-#### Daily Anomaly calculation  ####
+#### Daily Anomaly calculation removing trend  ####
 #------------------------------------------------------------------------------#
 dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
 sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
@@ -1753,6 +1688,9 @@ dev.off()
 write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Removed.csv'), row.names = F)
 }
 
+#------------------------------------------------------------------------------#
+#### Daily Anomaly calculation keeping trend  ####
+#------------------------------------------------------------------------------#
 {
         randomtype <- 'TrendKept' # 'TrendRemoved'
         pdf(file.path(dir.out, 'dailyTrendKeptAnomaly.plots.pdf'))
@@ -1775,3 +1713,187 @@ write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Removed.csv'), r
         dev.off()
         write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Kept.csv'), row.names = F)
 }
+
+#------------------------------------------------------------------------------#
+#### Corelation between structural index and co2 fluxes at daily scale  ####
+#------------------------------------------------------------------------------#
+#### Trend Removed ####
+{
+stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
+anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_Trend_Removed.csv'
+
+stru.data <- read.csv(stru.file)
+anom.data <- read.csv(anom.file)
+Var       <- c('nep', 'gpp', 'reco')
+YVar      <- c("HigherNegativeTail995", 
+               "areaUnderHigherNegativeTail995",
+               "daysUnderHigherNegativeTail995",
+               "PerCentdaysUnderHigherNegativeTail995",
+               "HigherNegativeTail100",
+               "areaUnderHigherNegativeTail100",
+               "daysUnderHigherNegativeTail100",
+               "PerCentdaysUnderHigherNegativeTail100")
+
+XVar       <- c("CVDBH",
+                "meanDBH",
+                "ShannonSize",
+                "ShannonSps",
+                "shapeWeibull",
+                "TotalSpeciesRichnessBA95"
+)
+
+dir.plot <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+dir.out  <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+pdf(file.path(dir.out, 'dailyTrendRemovedAnomalyVsStrucIndex.plots.pdf'))
+par(oma=c(2,6,2,8), mar = c(4,0,0,0))
+par(mfrow=c(3,2))
+
+resultsCorr <- NULL
+for(i in 1:length(Var)) {
+        anom.data.var <- dplyr::filter(anom.data, var == var[i])
+        data <- merge(anom.data.var, stru.data, by = 'site')
+        
+        for(j in 1:length(YVar)) {
+                
+                for(k in 1:length(XVar)) {
+                        dataYXvar <- data[, c(YVar[j], XVar[k])]
+                        names(dataYXvar) <- c('YVar', 'XVar')
+                        
+                        minY <- min(dataYXvar$YVar)
+                        maxY <- max(dataYXvar$YVar)
+                        
+                        corrResults <- cor.test(dataYXvar$YVar, dataYXvar$XVar)
+                        pVal <- corrResults$p.value
+                        corrValue <- cor(dataYXvar$YVar, dataYXvar$XVar)
+                        
+                        resultsCorr <- rbind(resultsCorr, c('Var' = Var[i],
+                                                            'YVar' = YVar[j],
+                                                            'XVar' = XVar[k],
+                                                            'corrVal' = corrValue,
+                                                            'pVal' = pVal))
+                        
+                        with(dataYXvar, plot(XVar, YVar, yaxt = 'n', xlab = '', pch = 16))
+                        mtext(XVar[k], outer = F, side = 1,  line = 2.2, cex = 0.8)
+                        legend('topleft', 
+                               paste(round(corrValue,2), '(p =', round(pVal, 3), ')'), 
+                               bty = 'n')
+                        legend('topright', 
+                               Var[i], 
+                               bty = 'n')
+                        # put tick marks in all figures in Y-axis
+                        axis(2, 
+                             at = round(seq(minY, maxY, by = (maxY - minY)/4), 1), 
+                             labels = F)
+                        
+                        # label Y-axis only in 1, 3 and 5
+                        if(k %in% c(1,3,5)) {
+                                axis(2, 
+                                     at = round(seq(minY, maxY, by = (maxY - minY)/4), 1), 
+                                     labels = T)   
+                        } # end for axis    
+                } # end for dependent variable
+                mtext(YVar[j], outer = T, side = 2,  line = 2.2, cex = 0.8)
+        } # end for independent variable
+} # end for all carbon dioxide fluxes
+dev.off() # end of pdf
+write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Removed_Vs_Struc_Index.csv'), row.names = F)
+}
+
+#### Trend kept ####
+{
+        stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
+        anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_Trend_Kept.csv'
+        
+        stru.data <- read.csv(stru.file)
+        anom.data <- read.csv(anom.file)
+        Var       <- c('nep', 'gpp', 'reco')
+        YVar      <- c("HigherNegativeTail995", 
+                       "areaUnderHigherNegativeTail995",
+                       "daysUnderHigherNegativeTail995",
+                       "PerCentdaysUnderHigherNegativeTail995",
+                       "HigherNegativeTail100",
+                       "areaUnderHigherNegativeTail100",
+                       "daysUnderHigherNegativeTail100",
+                       "PerCentdaysUnderHigherNegativeTail100")
+        
+        XVar       <- c("CVDBH",
+                        "meanDBH",
+                        "ShannonSize",
+                        "ShannonSps",
+                        "shapeWeibull",
+                        "TotalSpeciesRichnessBA95"
+        )
+        
+        dir.plot <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+        dir.out  <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+        pdf(file.path(dir.out, 'dailyTrendKeptAnomalyVsStrucIndex.plots.pdf'))
+        par(oma=c(2,6,2,8), mar = c(4,0,0,0), mfrow=c(3,2))
+        
+        resultsCorr <- NULL
+        for(i in 1:length(Var)) {
+                anom.data.var <- dplyr::filter(anom.data, var == var[i])
+                data <- merge(anom.data.var, stru.data, by = 'site')
+                
+                for(j in 1:length(YVar)) {
+                        
+                        for(k in 1:length(XVar)) {
+                                dataYXvar <- data[, c(YVar[j], XVar[k])]
+                                names(dataYXvar) <- c('YVar', 'XVar')
+                                
+                                minY <- min(dataYXvar$YVar)
+                                maxY <- max(dataYXvar$YVar)
+                                
+                                corrResults <- cor.test(dataYXvar$YVar, dataYXvar$XVar)
+                                pVal <- corrResults$p.value
+                                corrValue <- cor(dataYXvar$YVar, dataYXvar$XVar)
+                                
+                                resultsCorr <- rbind(resultsCorr, c('Var' = Var[i],
+                                                                    'YVar' = YVar[j],
+                                                                    'XVar' = XVar[k],
+                                                                    'corrVal' = corrValue,
+                                                                    'pVal' = pVal))
+                                
+                                with(dataYXvar, plot(XVar, YVar, yaxt = 'n', xlab = '', pch = 16))
+                                mtext(XVar[k], outer = F, side = 1,  line = 2.2, cex = 0.8)
+                                legend('topleft', 
+                                       paste(round(corrValue,2), '(p =', round(pVal, 3), ')'), 
+                                       bty = 'n')
+                                legend('topright', 
+                                       Var[i], 
+                                       bty = 'n')
+                                # put tick marks in all figures in Y-axis
+                                axis(2, 
+                                     at = round(seq(minY, maxY, by = (maxY - minY)/4), 1), 
+                                     labels = F)
+                                
+                                # label Y-axis only in 1, 3 and 5
+                                if(k %in% c(1,3,5)) {
+                                        axis(2, 
+                                             at = round(seq(minY, maxY, by = (maxY - minY)/4), 1), 
+                                             labels = T)   
+                                } # end for axis    
+                        } # end for dependent variable
+                        mtext(YVar[j], outer = T, side = 2,  line = 2.2, cex = 0.8)
+                } # end for independent variable
+        } # end for all carbon dioxide fluxes
+        dev.off() # end of pdf
+        write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Kept_Vs_Struc_Index.csv'), row.names = F)
+}
+
+#------------------------------------------------------------------------------#
+#### histogram of random errors  ####
+#------------------------------------------------------------------------------#
+dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
+sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
+dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
+dir.out  <- 'main_analysis/anomaly_detection/daily'
+j = 1
+site <- sitelist[j]
+FileName <- list.files(dir.data, pattern = site, full.names = T)
+data <- read.csv(FileName)
+data[data == -9999] <- NA
+data <- na.omit(data)
+par(oma=c(0,0,2,0.5), mar = c(4,4,0,0), mfrow=c(1,1))
+
+hist(data$nepzrandom, mai = '', ylim = c(0, 0.5), xlim = c(-6, 6), xlab = 'z scores', probability = T)
+lines(density(data$nepzrandom), lty="dotted") 
