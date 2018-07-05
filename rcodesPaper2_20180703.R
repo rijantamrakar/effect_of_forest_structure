@@ -145,6 +145,579 @@ write.csv(final_data, file.path(paste0('Communication_with_PIs/finallist.', form
 ################################################################################
 
 #------------------------------------------------------------------------------#
+#### Function for calculating Index ####
+#------------------------------------------------------------------------------#
+Structural_Index_DBH <- function(Filename, 
+                                 Site,  
+                                 IndPlot, 
+                                 PlotDiaDist, 
+                                 Dir.Res) {
+        
+        # read the data #
+        dataAll     <- read.csv(Filename)                                          
+        
+        if(max(dataAll$dbh, na.rm = T) >= 12) dataAll <- dplyr::filter(dataAll, dbh >= 12)                               # definition of tree (needs careful attention as sapling might have been sampled in smaller plot size)
+        
+        dataAll$g   <- pi * dataAll$dbh * dataAll$dbh/40000                              # calculating basal area
+        
+        inventory.years <- unique(dataAll$inventory.year)
+        ResultsAll <- NULL
+        
+        for(eachyear in 1:length(inventory.years)) {
+                InventoryYear <- inventory.years[eachyear]
+                data <- dataAll[dataAll$inventory.year == InventoryYear, ]
+                
+                #----------------------------------------------------------------------#
+                # mean diameter, heigth and basal area of trees above (12cm)
+                print('Calculating mean dbh, heigth and basal area')
+                data_trees <- data
+                data_trees[data_trees == -9999] <- NA
+                data_plot <- data_trees %>%
+                        group_by(plot.no) %>%
+                        summarise(meanDBH  = mean(dbh, na.rm = T),
+                                  sdDBH    = sd(dbh, na.rm = T),
+                                  maxDBH   = quantile(dbh, 0.99, na.rm = T),
+                                  #meanHt  = mean(height, na.rm = T),
+                                  #sdHt    = sd(height, na.rm = T),
+                                  #maxHt   = quantile(height, 0.99, na.rm = T),
+                                  TBA      = sum (g, na.rm = T),
+                                  noTrees  = n(),
+                                  PlotSize = mean(plot.size)
+                        ) %>%
+                        mutate(CVDBH       = sdDBH/meanDBH,
+                               TBAm2ha     = 10000 * TBA/PlotSize,
+                               noTreeperHa = noTrees * 10000/PlotSize
+                        ) 
+                
+                # mean for all plots
+                data_plot2  <- dplyr::select(data_plot, -plot.no, -noTrees, -TBA)
+                resultsInd  <- as.data.frame(round(colMeans(data_plot2, na.rm = T),2))
+                
+                resultsInd <- tibble::rownames_to_column(resultsInd, "Index")
+                names(resultsInd) <- c('Index', 'Value')
+                No_of_plot <- nrow(data_plot)
+                resultsInd <- rbind(resultsInd, c('No_of_plot', No_of_plot))
+                
+                #----------------------------------------------------------------------#
+                print('Calculating Species Richness')
+                # Species Richness based on basalAread
+                data_abundance <- data %>%
+                        group_by(plot.no, species) %>%
+                        summarise(TBA = sum(g),
+                                  PlotSize = mean(plot.size)) %>%
+                        mutate(TBAm2ha     = 10000 * TBA/PlotSize)
+                
+                relative_abundace <- data_abundance %>%
+                        group_by(species) %>%
+                        summarise(TBa = sum(TBAm2ha)/No_of_plot) %>%
+                        mutate(rel.abudance = TBa/sum(TBa)) %>%
+                        arrange(-rel.abudance) %>%
+                        mutate(cum.rel.abudance = cumsum(rel.abudance))
+                
+                TotalSpeciesRichnes  <- nrow(relative_abundace)
+                
+                relative_abundace <- arrange(relative_abundace, rel.abudance)
+                TotalSpeciesRichnesatleast95  <- nrow(relative_abundace[relative_abundace$cum.rel.abudance < 0.95, ]) + 1 
+                
+                resultsInd <- rbind(resultsInd, c('TotalSpeciesRichnessBA', TotalSpeciesRichnes)) 
+                resultsInd <- rbind(resultsInd, c('TotalSpeciesRichnessBA95', TotalSpeciesRichnesatleast95)) 
+                
+                #--------------------------------------------------------------#
+                # Shannon and simpson index
+                print('Calculating Shannon and simpson index based on species')
+                dataforDiversityIndex <- data %>%
+                        group_by(plot.no, species) %>%
+                        summarise(speciesNo = n())
+                # changing the dataformat into wide data
+                data_species <- dcast(dataforDiversityIndex, 
+                                      plot.no ~ species, 
+                                      value.var="speciesNo") 
+                data_species[is.na(data_species)] <- 0
+                data_species <- data_species[,-1]
+                
+                if(IndPlot == 'TRUE' | No_of_plot == 1) {                                                 # Shannon and simpson index use single plot
+                        Simpson    <- round(mean(diversity(data_species, "simpson")), 4)
+                        Shannon    <- round(mean(diversity(data_species, "shannon")), 4)
+                        
+                        # adding to results
+                        resultsInd <- rbind(resultsInd, c('SimpsonSps', Simpson))
+                        resultsInd <- rbind(resultsInd, c('ShannonSps', Shannon))
+                } else {
+                        average_no_species_per_plot <- as.vector(colMeans(data_species)) 
+                        Simpson    <- round(diversity(average_no_species_per_plot, "simpson"), 4)
+                        Shannon    <- round(diversity(average_no_species_per_plot, "shannon"), 4)
+                        
+                        resultsInd <- rbind(resultsInd, c('SimpsonSps', Simpson))
+                        resultsInd <- rbind(resultsInd, c('ShannonSps', Shannon))     
+                }
+                
+                #--------------------------------------------------------------#
+                # Shannon and simpson index for diameter classes
+                print('Calculating Shannon and simpson index based on diameter class')
+                plot.No <- unique(data$plot.no)
+                maxVal  <- ceiling(max(data$dbh)/sizeclass) *sizeclass 
+                minVal  <- floor(min(data$dbh)/sizeclass) *sizeclass 
+                
+                # creating categories
+                if(maxVal > 100) {
+                        FNoClasses <- seq(minVal, 100, by = sizeclass)
+                        FNoClasses <- append(FNoClasses,  maxVal)
+                } else {
+                        FNoClasses <- seq(minVal, maxVal, by = sizeclass)
+                } 
+                
+                # assigning dbh into dbh classes
+                data$DBHclass <- cut(data$dbh, FNoClasses, right=F)
+                data$DBHclass <- as.character(data$DBHclass)
+                
+                # Number of trees in each plot in each diameter class
+                SizeClassDistributionPlot <- data %>%
+                        group_by(plot.no, DBHclass) %>%
+                        summarise(CountDBH = n(),
+                                  PlotSize = mean(plot.size)) %>%
+                        mutate(CountDBHperHa = round(CountDBH * 10000/PlotSize))
+                
+                # Overall numbers of tree per ha in the study site
+                FinalDBHdistribution <- SizeClassDistributionPlot %>%
+                        group_by(DBHclass) %>%
+                        summarise(SumTreesperHa = sum(CountDBHperHa)) %>%
+                        mutate (CountTreesPerHa = SumTreesperHa/No_of_plot)
+                
+                # for collecting aggregate results of diameter classes
+                dat.size.class <- matrix(FNoClasses, ncol = 1, nrow = length(FNoClasses)) 
+                dat.size.class <- as.data.frame(dat.size.class) %>%
+                        mutate(sn = 1:length(FNoClasses)) %>%
+                        mutate(DBHclass = cut(V1, FNoClasses, right=F)) %>%
+                        mutate(DBHclass = as.character(DBHclass)) %>%
+                        na.omit(data.size.class)
+                
+                # prepare dataset for merging
+                FinalDBHdistribution <- merge(dat.size.class, 
+                                              FinalDBHdistribution,
+                                              by = 'DBHclass',
+                                              all.x = T)
+                
+                FinalDBHdistribution[is.na(FinalDBHdistribution)] <- 0   
+                FinalDBHdistribution <- dplyr::arrange(FinalDBHdistribution, sn) %>%
+                        mutate(probTrees= CountTreesPerHa/sum(CountTreesPerHa))
+                
+                # simpson index for diameter class
+                SimpsonSize <- round(diversity(FinalDBHdistribution$CountTreesPerHa, "simpson"), 3)
+                # shannon index for diameter class
+                ShannonSize <- round(diversity(FinalDBHdistribution$CountTreesPerHa, "shannon"), 3)
+                
+                # collecting results
+                resultsInd <- rbind(resultsInd, c('SimpsonSize', SimpsonSize))
+                resultsInd <- rbind(resultsInd, c('ShannonSize', ShannonSize))
+                
+                #----------------------------------------------------------------------#
+                # Weibull curve fitting
+                print('Calculating parameters of Weibull curve')
+                while(FinalDBHdistribution[nrow(FinalDBHdistribution), 'CountTreesPerHa'] == 0) {
+                        FinalDBHdistribution <- FinalDBHdistribution[-nrow(FinalDBHdistribution), ]
+                } 
+                
+                while(FinalDBHdistribution[1, 'CountTreesPerHa'] == 0) {
+                        FinalDBHdistribution <- FinalDBHdistribution[-1, ]
+                } 
+                
+                SizeClass <- sizeclass
+                while(nrow(FinalDBHdistribution) == 1) {
+                        
+                        SizeClass <- SizeClass/2
+                        if(maxVal > 100) {
+                                FNoClasses <- seq(minVal, 100, by = SizeClass)
+                                FNoClasses <- append(FNoClasses,  maxVal)
+                        } else {
+                                FNoClasses <- seq(minVal, maxVal, by = SizeClass)
+                        } 
+                        
+                        # assigning dbh into dbh classes
+                        data$DBHclass <- cut(data$dbh, FNoClasses, right=F)
+                        data$DBHclass <- as.character(data$DBHclass)
+                        
+                        # Number of trees in each plot in each diameter class
+                        SizeClassDistributionPlot <- data %>%
+                                group_by(plot.no, DBHclass) %>%
+                                summarise(CountDBH = n(),
+                                          PlotSize = mean(plot.size)) %>%
+                                mutate(CountDBHperHa = round(CountDBH * 10000/PlotSize))
+                        
+                        # Overall numbers of tree per ha in the study site
+                        FinalDBHdistribution <- SizeClassDistributionPlot %>%
+                                group_by(DBHclass) %>%
+                                summarise(SumTreesperHa = sum(CountDBHperHa)) %>%
+                                mutate (CountTreesPerHa = SumTreesperHa/No_of_plot)
+                        
+                        # for collecting aggregate results of diameter classes
+                        dat.size.class <- matrix(FNoClasses, ncol = 1, nrow = length(FNoClasses)) 
+                        dat.size.class <- as.data.frame(dat.size.class) %>%
+                                mutate(sn = 1:length(FNoClasses)) %>%
+                                mutate(DBHclass = cut(V1, FNoClasses, right=F)) %>%
+                                mutate(DBHclass = as.character(DBHclass)) %>%
+                                na.omit(data.size.class)
+                        
+                        # prepare dataset for merging
+                        FinalDBHdistribution <- merge(dat.size.class, 
+                                                      FinalDBHdistribution,
+                                                      by = 'DBHclass',
+                                                      all.x = T)
+                        
+                        FinalDBHdistribution[is.na(FinalDBHdistribution)] <- 0   
+                        FinalDBHdistribution <- dplyr::arrange(FinalDBHdistribution, sn) %>%
+                                mutate(probTrees= CountTreesPerHa/sum(CountTreesPerHa)) 
+                        
+                        
+                        while(FinalDBHdistribution[nrow(FinalDBHdistribution), 'CountTreesPerHa'] == 0) {
+                                FinalDBHdistribution <- FinalDBHdistribution[-nrow(FinalDBHdistribution), ]
+                        } 
+                        
+                        while(FinalDBHdistribution[1, 'CountTreesPerHa'] == 0) {
+                                FinalDBHdistribution <- FinalDBHdistribution[-1, ]
+                        } 
+                }
+                
+                # calculating weibull curve parameter
+                y <- FinalDBHdistribution$CountTreesPerHa
+                x <- 0 + c(0:length(y))
+                out1 <- binning(counts=y, breaks=x)
+                weibullfit <- fit.Weibull(out1, dist="weibull")                         # Weibull function from package bda
+                
+                # shape and scale parameter of weibull curve
+                shapeWeibull <- weibullfit$pars[1]
+                scaleWeibull <- weibullfit$pars[2]
+                
+                # calculating modelled values from weibull parameter
+                z <- (shapeWeibull/scaleWeibull)* (x/scaleWeibull)^(shapeWeibull-1) * exp(-(x/scaleWeibull)^shapeWeibull)
+                z <- z[-1] 
+                
+                FinalDBHdistribution <- FinalDBHdistribution %>%
+                        mutate(weibullprob = z) %>%
+                        mutate(weibullTrees = sum(CountTreesPerHa) * z) %>%
+                        mutate(V1 = V1 + 2) 
+                
+                maxY <- ceiling(max(FinalDBHdistribution$CountTreesPerHa, FinalDBHdistribution$weibullTrees)/10) * 10
+                
+                # collecting results
+                resultsInd <- rbind(resultsInd, c('shapeWeibull', round(shapeWeibull, 3)))
+                resultsInd <- rbind(resultsInd, c('scaleWeibull', round(scaleWeibull, 3)))
+                
+                # plotting diagram if requested
+                if(plotDiaDist == 'TRUE') {
+                        plots      <- list()
+                        plots[[eachyear]] <- ggplot(data = FinalDBHdistribution, aes(x=V1, y=CountTreesPerHa)) + 
+                                theme_bw() +
+                                theme_minimal() +
+                                geom_bar(stat="identity", width=SizeClass - 0.2) + 
+                                geom_line(aes(x = V1, y = weibullTrees, col = 2)) + 
+                                xlab("DBH class [cm]") + 
+                                ylab(expression('Stems [' ~ ha^-1 ~ ']')) +
+                                theme(legend.position="none") +
+                                scale_x_continuous(limits = c(0,104), expand = c(0, 0)) +
+                                scale_y_continuous(limits = c(0, maxY), expand = c(0, 0)) 
+                        
+                        plots[[eachyear + 1]] <-ggplot(data = FinalDBHdistribution, aes(x=V1, y=probTrees)) + 
+                                theme_bw() +
+                                theme_minimal() +
+                                geom_bar(stat="identity", width=SizeClass - 0.2) + 
+                                geom_line(aes(x = V1, y = weibullprob, col = 2)) + 
+                                xlab("DBH class [cm]") + 
+                                ylab(expression('Probability of no of stems [ ]')) +
+                                theme(legend.position="none") +
+                                scale_x_continuous(limits = c(0,104), expand = c(0, 0)) +
+                                scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+                                annotate("text", x = 75, y = 0.45, label = paste(inventory.years[eachyear], 'Shape =', round(shapeWeibull,2), 'Scale =', round(scaleWeibull,2)), size = 1)
+                        
+                        ggarrange(plots[[eachyear]], plots[[eachyear + 1]], ncol = 2, labels = c("a", "b"))
+                        
+                        ggsave(file.path(Dir.Res, paste(Site, inventory.years[eachyear], 'Weibull.jpeg', sep='.')), 
+                               width = 180, height = 90, units = "mm", dpi = 300) 
+                }
+                
+                # adding site and inventory year to returning data frame
+                resultsInd$Year <- InventoryYear
+                ResultsAll <- rbind(ResultsAll, resultsInd)
+        }
+        ResultsAll$site <- Site
+        return(ResultsAll)
+}
+
+#------------------------------------------------------------------------------#
+#### Function for calculating Index based on diameter distribution ####
+#------------------------------------------------------------------------------#
+DiameterDistribution <- function (Filename, 
+                                  Site, 
+                                  SizeClass,
+                                  TotalSpeciesRichnessBA,
+                                  TotalSpeciesRichnessBA95,
+                                  IndPlot, 
+                                  PlotDiaDist, 
+                                  Dir.Res) {
+        
+        data <- read.csv(Filename)
+        data     <- dplyr::filter(data, mid.val >= 12)
+        
+        resultsInd <- NULL
+        years <- unique(data$inventory.year)
+        for(i in 1:length(years)) {
+                
+                DataYear <- filter(data, inventory.year == years[i]) %>%
+                        mutate(prodDBH = mid.val * no.per.ha) %>%
+                        mutate(TBA = pi * (mid.val)^2 * no.per.ha / 10000)
+                
+                noTrees  <- sum(DataYear$no.per.ha)
+                meanDBH  <- round(sum(DataYear$prodDBH)/noTrees, 2)
+                DataYear <- mutate(DataYear, diff = no.per.ha * (meanDBH-mid.val)^2)
+                
+                sdDBH    <- round(sqrt(sum(DataYear$diff)/noTrees), 2)
+                CVDBH    <- round(sdDBH/meanDBH, 2)
+                
+                TBA <- round(sum(DataYear$TBA))
+                
+                # Shannon and simpson index for diameter classes (4 cm for now)
+                Simpson  <- round(diversity(DataYear$no.per.ha, "simpson"), 4)
+                Shannon <- round(diversity(DataYear$no.per.ha, "shannon"), 4)
+                
+                # Weibull curve fitting
+                #----------------------------------------------------------------------#
+                # probability of finding trees in each diameter class
+                DataYear <- dplyr::arrange(DataYear, mid.val)
+                
+                while(DataYear[nrow(DataYear), 'no.per.ha'] == 0) {
+                        DataYear <- DataYear[-nrow(DataYear), ]
+                } 
+                
+                while(DataYear[1, 'no.per.ha'] == 0) {
+                        DataYear <- DataYear[-1, ]
+                } 
+                
+                # calculating weibull curve parameter
+                y <- DataYear$no.per.ha
+                x <- 0 + c(0:length(y))
+                out1 <- binning(counts=y, breaks=x)
+                weibullfit <- fit.Weibull(out1, dist="weibull")                         # Weibull function from package bda
+                
+                # shape and scale parameter of weibull curve
+                shapeWeibull <- weibullfit$pars[1]
+                scaleWeibull <- weibullfit$pars[2]
+                
+                # calculating modelled values from weibull parameter
+                z <- (shapeWeibull/scaleWeibull)* (x/scaleWeibull)^(shapeWeibull-1) * exp(-(x/scaleWeibull)^shapeWeibull)
+                z <- z[-1] 
+                
+                DataYear$weibullTrees <- noTrees * z
+                DataYear$weibullProb  <- z
+                DataYear$probTrees    <- DataYear$no.per.ha/sum(DataYear$no.per.ha)
+                maxY <- ceiling(max(DataYear$no.per.ha, DataYear$weibullTrees)/10) * 10
+                
+                
+                if(plotDiaDist == 'TRUE') {
+                        plots      <- list()
+                        plots[[i]]<- ggplot(data = DataYear, aes(x=mid.val, y=no.per.ha)) + 
+                                theme_bw() +
+                                theme_minimal() +
+                                geom_bar(stat="identity", width=SizeClass - 0.2) + 
+                                geom_line(aes(x = mid.val, y = weibullTrees, col = 2)) + 
+                                xlab("DBH class [cm]") + 
+                                ylab(expression('Stems [' ~ ha^-1 ~ ']')) +
+                                theme(legend.position="none") +
+                                scale_x_continuous(limits = c(0,100), expand = c(0, 0)) +
+                                scale_y_continuous(limits = c(0, maxY), expand = c(0, 0)) 
+                        
+                        plots[[i + 1]] <- ggplot(data = DataYear, aes(x=mid.val, y=probTrees)) + 
+                                theme_bw() +
+                                theme_minimal() +
+                                geom_bar(stat="identity", width=SizeClass - 0.2) + 
+                                geom_line(aes(x = mid.val, y = weibullProb, col = 2)) + 
+                                xlab("DBH class [cm]") + 
+                                ylab(expression('Probability of no of stems [ ]')) +
+                                theme(legend.position="none") +
+                                scale_x_continuous(limits = c(0,100), expand = c(0, 0)) +
+                                scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+                                annotate("text", x = 75, y = 0.45, label = paste('Shape =', round(shapeWeibull,2), 'Scale', round(scaleWeibull,2)), size = 2)
+                        
+                        ggarrange(plots[[i]], plots[[i + 1]], ncol = 2, labels = c("a", "b"))
+                        
+                        ggsave(file.path(Dir.Res, paste(Site, years[i], 'Weibull.jpeg', sep='.')), 
+                               width = 180, height = 90, units = "mm", dpi = 300) 
+                        
+                }
+                
+                resultsInd  <- rbind(resultsInd, c('site' = Site,
+                                                   'Year' = years[i],
+                                                   'CVDBH' = CVDBH,
+                                                   'maxDBH' = 'na',
+                                                   'meanDBH' = meanDBH, 
+                                                   'No_of_plot' = 'na',
+                                                   'PlotSize' = 'na',
+                                                   'noTreeperHa' = noTrees,
+                                                   'scaleWeibull'= scaleWeibull,
+                                                   'sdDBH' = sdDBH, 
+                                                   'ShannonSize' = Shannon,
+                                                   'ShannonSps' = 0,
+                                                   'shapeWeibull'= shapeWeibull,
+                                                   'SimpsonSize' = Simpson,
+                                                   'SimpsonSps' = '0',
+                                                   'TBAm2ha' = TBA,
+                                                   'TotalSpeciesRichnessBA' = TotalSpeciesRichnessBA,
+                                                   'TotalSpeciesRichnessBA95' = TotalSpeciesRichnessBA95
+                )
+                )
+                
+        }
+        
+        return(resultsInd)
+}
+
+
+#------------------------------------------------------------------------------#
+#### Function for calculating Index for inventory data ####
+#------------------------------------------------------------------------------#
+Dir.In     <- 'Structural_index/final_data'
+FileLists  <- list.files(Dir.In, full.names = T, pattern = 'Inventory.Data')
+ShortNames <- list.files(Dir.In, pattern = 'Inventory.Data')
+Dir.Res    <- 'Structural_index/results/figures'
+plotDiaDist <- 'TRUE'
+sizeclass <- 4
+
+res.all <- NULL
+for(k in 1:length(FileLists)) {
+        Filename <- FileLists[k]
+        Site     <- substr(ShortNames[k], 1, 6)
+        IndPlot  <- 'TRUE'
+        dataIndex <-Structural_Index_DBH (Filename, 
+                                          Site, 
+                                          IndPlot, 
+                                          PlotDiaDist, 
+                                          Dir.Res)
+        res.all   <- rbind(res.all, dataIndex)
+}
+
+res.all2 <- dcast(res.all, 
+                  site + Year ~ Index, 
+                  value.var="Value") 
+
+#------------------------------------------------------------------------------#
+#### Function for calculating Index for RuFryo ####
+#------------------------------------------------------------------------------#
+Filename   <- "Structural_index/final_data/RU-Fyo.Diameter.Distribution.csv"
+Site       <- 'RU-Fyo'
+plotDiaDist <- 'TRUE'
+SizeClass = 4
+Dir.Res    <- 'Structural_index/results/figures'
+TotalSpeciesRichnessBA <- 2
+TotalSpeciesRichnessBA95 <- 2
+
+data2 <- DiameterDistribution  (Filename, 
+                                Site, 
+                                SizeClass,
+                                TotalSpeciesRichnessBA,
+                                TotalSpeciesRichnessBA95,
+                                IndPlot, 
+                                PlotDiaDist, 
+                                Dir.Res)
+
+res.all2 <- rbind(res.all2, data2)
+
+#------------------------------------------------------------------------------#
+#### Function for calculating Index for FR-Fon ####
+#------------------------------------------------------------------------------#
+Filename <- "Structural_index/final_data/FR-Fon.Diameter.Distribution.csv"
+Site     <- 'FR-Fon'
+plotDiaDist <- 'TRUE'
+SizeClass = 5
+Dir.Res    <- 'Structural_index/results/figures'
+TotalSpeciesRichnessBA <- 2
+TotalSpeciesRichnessBA95 <- 2
+
+data2 <- DiameterDistribution  (Filename, 
+                                Site, 
+                                SizeClass,
+                                TotalSpeciesRichnessBA,
+                                TotalSpeciesRichnessBA95,
+                                IndPlot, 
+                                PlotDiaDist, 
+                                Dir.Res)
+
+res.all2 <- rbind(res.all2, data2)
+
+#------------------------------------------------------------------------------#
+#### Function for calculating Index for US-DK3 ####
+#------------------------------------------------------------------------------#
+Filename   <- "Structural_index/final_data/US-DK3.Diameter.Distribution.csv"
+Site       <- 'US-Dk3'
+plotDiaDist <- 'TRUE'
+SizeClass = 5
+Dir.Res    <- 'Structural_index/results/figures'
+TotalSpeciesRichnessBA <- 17
+TotalSpeciesRichnessBA95 <- 11
+data2 <- DiameterDistribution  (Filename, 
+                                Site, 
+                                SizeClass,
+                                TotalSpeciesRichnessBA,
+                                TotalSpeciesRichnessBA95,
+                                IndPlot, 
+                                PlotDiaDist, 
+                                Dir.Res)
+
+res.all2 <- rbind(res.all2, data2)
+
+write.csv(res.all2, 'structural_index/results/structural.index.csv', row.names = F)
+
+
+#------------------------------------------------------------------------------#
+#### Calculating Index for any additional site with inventory data ####
+#------------------------------------------------------------------------------#
+data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
+sites.complete        <- unique(as.character(data.structure.forest$site))
+
+Dir.In     <- 'Structural_index/final_data'
+FileLists  <- list.files(Dir.In, full.names = T, pattern = 'Inventory.Data')
+ShortNames <- list.files(Dir.In, pattern = 'Inventory.Data')
+Dir.Res    <- 'Structural_index/results/figures'
+plotDiaDist <- 'TRUE'
+sizeclass <- 4
+Site     <- substr(ShortNames, 1, 6)
+
+remaining_sites <- Site[is.na(pmatch(Site, sites.complete))]
+
+res.all <- NULL
+for(i in 1:length(remaining_sites)) {
+        Filename <- file.path(Dir.In, paste(remaining_sites[i], 'Inventory.Data.csv', sep = '.'))
+        Site     <- remaining_sites[i]
+        IndPlot  <- 'TRUE'
+        dataIndex <-Structural_Index_DBH (Filename, 
+                                          Site, 
+                                          IndPlot, 
+                                          PlotDiaDist, 
+                                          Dir.Res)
+        
+        
+        res.all   <- rbind(res.all, dataIndex)
+}
+
+res.all2 <- dcast(res.all, 
+                  site + Year ~ Index, 
+                  value.var="Value")
+
+data.structure.forest <- rbind(data.structure.forest, res.all2)       
+data.structure.forest[is.na(data.structure.forest)] <- -9999
+write.csv(data.structure.forest, 'structural_index/results/structural.index.csv', row.names = F)
+
+
+#------------------------------------------------------------------------------#
+#### Calculating Index one value per site ####
+#------------------------------------------------------------------------------#
+data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
+data.structure.forest[data.structure.forest == -9999] <- 'NA'
+data.structure.forest <- dplyr::select(data.structure.forest, -Year, -maxDBH, -No_of_plot, -PlotSize)
+data.structure.forest <- data.structure.forest %>%
+        group_by(site) %>%
+        summarise_all(mean)
+
+write.csv(data.structure.forest, 'structural_index/results/structural.index.one.value.csv', row.names = F)
+
+#------------------------------------------------------------------------------#
 # preparing required daily Fluxnet2015 data ####
 #------------------------------------------------------------------------------#
 reqd.var <- c("TIMESTAMP", 
