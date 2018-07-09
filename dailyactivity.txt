@@ -9,3 +9,7 @@ Date: 20180704
 1. added anomaly calculation
 2. plotted daily anomaly files in pdf with removed and not removed trend.
 3. Prepared the meeting presentations
+
+Date: 20180709
+1. daily timeseries function improved
+2. daily anomalies calculated and plotted.

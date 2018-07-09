@@ -1452,9 +1452,9 @@ write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 #------------------------------------------------------------------------------#
 ts_decompositon_daily <- function(FileName, 
                                   Site, 
-                                  Problematic.Year,
-                                  plotsmooth
+                                  Problematic.Year
 ) {
+        cat('daily timeseries decomposition', 'for site', Site, '\n')
         data           <- read.csv(FileName)
         data           <- dplyr::select(data, 
                                         'TIMESTAMP', 
@@ -1483,7 +1483,10 @@ ts_decompositon_daily <- function(FileName,
         Freq = 180
         var <- c('nep', 'gpp', 'reco') 
         
+        dataAll <- NULL
+        
         for(i in 1:length(var)) {
+                cat('daily timeseries decomposition of', var[i],  'for site', Site, '\n')
                 dataVar <- data[,c('timestamp', 'year', 'doy', var[i])] 
                 names(dataVar) <- c('timestamp', 'year', 'doy', 'var')
                 
@@ -1559,11 +1562,20 @@ ts_decompositon_daily <- function(FileName,
                                                     df = 10)
                 
                 smoothseasonalCycleAlldata <- data.frame('doy' = smoothseasoncycle1$x, 
-                                                         'smoothseasonalcycleAll' = smoothseasoncycle1$y)
-                dataVar<- merge(dataVar, 
+                                                         'seasonalSmooth' = smoothseasoncycle1$y)
+                dataVar <- merge(dataVar, 
                                 smoothseasonalCycleAlldata, 
                                 by='doy', 
                                 all = T)
+                
+                
+                # random component calculated after trend and seasonal cycle is removed
+                dataVar$randomSmooth     <- dataVar$var - dataVar$trend - dataVar$seasonalSmooth
+                # z score of random component
+                dataVar$normrandomSmooth <- dataVar$randomSmooth/mean(dataVar$var, na.rm = T)
+                # absolute z score of random component
+                dataVar$absnormrandomSmooth <- abs(dataVar$normrandomSmooth)
+                
                 #--------------------------------------------------------------#
                 # seasonal cycle with smooth spline from centred mean
                 dataVar3 <- dataVar[!is.na(dataVar$detrendVarCentreMean),]
@@ -1571,46 +1583,41 @@ ts_decompositon_daily <- function(FileName,
                                                     y = dataVar3$detrendVarCentreMean,
                                                     df = 10)
                 smoothseasonalCycleAlldataCentreMean <- data.frame('doy' = smoothseasoncycle2$x, 
-                                                                   'smoothseasonalcycleCentreMean' = smoothseasoncycle2$y)
+                                                                   'seasonalSmoothCentreMean' = smoothseasoncycle2$y)
                 dataVar<- merge(dataVar, 
                                 smoothseasonalCycleAlldataCentreMean, 
                                 by='doy', 
                                 all = T)
                 
-                if(plotsmooth == 'YES') {
-                        with(dataVar2, plot(doy, detrend))
-                        lines(smoothseasoncycle1, col = 2, lwd = 2)
-                        lines(dataVar$doy, dataVar$seasonalVar, col = 2, lwd = 2)
-                        with(dataVar3, points(doy, detrendVarCentreMean, col =3 ))
-                        lines(smoothseasoncycle2, col = 4, lwd = 2)  
-                        legend('topright', 
-                               c(Site, 'All data', 'Center data', 'smooth All Data', 'smooth centre data'), 
-                               pch = c('', 'o', 'o', '', ''),
-                               lty = c(0, 0, 0,1, 1),
-                               col = c(0, 1, 3, 2, 4),
-                               bty = 'n',
-                               ncol = 1)
-                        
-                }
+                # random component calculated after trend and seasonal cycle is removed
+                dataVar$randomSmoothCentreMean     <- dataVar$var - dataVar$trend - dataVar$seasonalSmoothCentreMean
+                # z score of random component
+                dataVar$normrandomSmoothCentreMean    <- dataVar$randomSmoothCentreMean/mean(dataVar$var, na.rm = T)
+                # absolute z score of random component
+                dataVar$absnormrandomSmoothCentreMean <- abs(dataVar$normrandomSmoothCentreMean)
+                #--------------------------------------------------------------#
                 
-                dataVar$var <- var[i]
+                dataVar$Co2flux <- var[i]
+                
+                dataAll <- rbind(dataAll, dataVar)
                 
         } # end for analysis for ith co2 component
-        dataVar[is.na(dataVar)] <- -9999
-        dataVar$site <- Site
-        return(dataVar)
+        dataAll[is.na(dataAll)] <- -9999
+        dataAll$site <- Site
+        return(dataAll)
 } # end of the funtion
 
 
 #------------------------------------------------------------------------------#
 #### Daily ts decomposition ####
 #------------------------------------------------------------------------------#
+{
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 
 dir.data  <- 'main_analysis/flux.data/day'
 dir.out   <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
-
 data.problem <- read.csv('main_analysis/flux.data/Data_with_problem.csv')
+plotsmooth <- 'YES'
 
 for(j in 1:length(sitelistwithstructuredata)) {
         Site <- sitelistwithstructuredata[j]
@@ -1619,63 +1626,71 @@ for(j in 1:length(sitelistwithstructuredata)) {
                 data.problem.for.site <- data.problem %>%
                         filter(site == Site) %>%
                         filter(dont_use_annual == 1)
-                plotsmooth = 'YES'
                 Problematic.Year <- data.problem.for.site$Not_good_year
-                site.data <- ts_decompositon_daily (FileName, Site, Problematic.Year, plotsmooth) 
+                site.data <- ts_decompositon_daily (FileName, Site, Problematic.Year) 
                 write.csv(site.data, file.path(dir.out, paste0(Site, '_flux_ts_decomposed.csv')), row.names = F)
         }
 }
+}
+
+
 
 #------------------------------------------------------------------------------#
 #### Anomaly calculation function ####
 #------------------------------------------------------------------------------#
-anomaly_calculation <- function(FileName, site, randomtype, Plot, Freq, dir.plot) {
+anomaly_calculation <- function(FileName, site, SeasonalType, Plot, Freq, dir.plot) {
         data <- read.csv(FileName)
         data[data == -9999] <- NA
-        var  <- c('nep', 'gpp', 'reco')
+        Var  <- c('nep', 'gpp', 'reco')
         ReturnResults <- NULL
-        for(i in 1:length(var)) {
-                cat('calculating extreme data of', var[i], 'for site', site, '\n')
+        for(i in 1:length(Var)) {
+                cat('calculating extreme data of', Var[i], 'for site', site, '\n')
+                dataVar <- dplyr::filter(data, Co2flux == Var[i])
                 
-                if(randomtype == 'TrendRemoved') {
-                        reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')))
+                if(SeasonalType %in% c('CentreMean', 'Smooth', 'SmoothCentreMean')) {
+                        reqdVar <- c('timestamp', 'year', 'doy', 'var', 'trend', paste0(c('seasonal', 'random', 'normrandom', 'absnormrandom'), SeasonalType))
                 } else {
-                        reqdVar <- c('year', 'doy', paste0(var[i], c('', 'trend', 'seasonal2', 'random2', 'zrandom2', 'abszrandom2')))
-                }
+                        reqdVar <- c('timestamp', 'year', 'doy', 'var', 'trend', 'seasonal', 'random', 'normrandom', 'absnormrandom')
+                        }
                 
                 dataVar     <- data[ ,reqdVar]
-                names(dataVar) <- c('year', 'doy', 'var', 'trend', 'seasonal', 'random', 'zrandom', 'abszrandom')
+                names(dataVar) <- c('timestamp', 'year', 'doy', 'var', 'trend', 'seasonal', 'random', 'normrandom', 'absnormrandom')
                 
-                if(randomtype != 'TrendRemoved') {
-                      dataVar$trend <- mean(dataVar$var, na.rm = T)
-                } 
+                
+                
                 
                 dataVar2 <- na.omit(dataVar)
                 
                 if(var[i] == 'reco') {
-                        maxPositiveZscore  <- abs(min(dataVar2$zrandom, na.rm = T))
-                        quantile_995z      <- as.numeric(quantile(abs(dataVar2$zrandom[dataVar2$zrandom < 0]), 0.995, na.rm = T))
-                        HigherNegativeTail995 <- -quantile_995z + max(dataVar2$zrandom, na.rm = T)
-                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom > quantile_995z]))/sum(dataVar2$abszrandom)
-                        daysUnderHigherNegativeTail995 <- length(dataVar2$zrandom[dataVar2$zrandom > quantile_995z])
-                        PerCentdaysUnderHigherNegativeTail995 <- 100* length(dataVar2$zrandom[dataVar2$zrandom > quantile_995z])/nrow(dataVar2)
+                        maxPositiveZscore  <- abs(min(dataVar2$normrandom, na.rm = T))
+                        quantile_995z      <- as.numeric(quantile(abs(dataVar2$normrandom[dataVar2$normrandom < 0]), 0.995, na.rm = T))
+                        HigherNegativeTail995 <- -quantile_995z + max(dataVar2$normrandom, na.rm = T)
                         
-                        HigherNegativeTail100 <- -maxPositiveZscore + max(dataVar2$zrandom)
-                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore]))/sum(dataVar2$abszrandom)
-                        daysUnderHigherNegativeTail100 <- length(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore])
-                        PerCentdaysUnderHigherNegativeTail100 <- 100* length(dataVar2$zrandom[dataVar2$zrandom > maxPositiveZscore])/nrow(dataVar2)
+                        TotalAreaUnderCurve = sintegral(dataVar,y)$int
+                        
+                        hist(dataVar2$normrandom, breaks=1000, freq=F, xlab='Slope Value (percent)', xlim=c(-4, 4), ylim=c(0,2))
+                        lines(density(dataVar2$normrandom, bw=1), col='green')
+                        
+                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$normrandom[dataVar2$normrandom > quantile_995z]))/sum(dataVar2$absrandomsmooth)
+                        daysUnderHigherNegativeTail995 <- length(dataVar2$normrandom[dataVar2$normrandom > quantile_995z])
+                        PerCentdaysUnderHigherNegativeTail995 <- 100* length(dataVar2$normrandom[dataVar2$normrandom > quantile_995z])/nrow(dataVar2)
+                        
+                        HigherNegativeTail100 <- -maxPositiveZscore + max(dataVar2$randomsmooth)
+                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore]))/sum(dataVar2$absrandomsmooth)
+                        daysUnderHigherNegativeTail100 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore])
+                        PerCentdaysUnderHigherNegativeTail100 <- 100* length(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore])/nrow(dataVar2)
                 } else {
-                        maxPositiveZscore <- max(dataVar2$zrandom, na.rm = T)
-                        quantile_995z      <- as.numeric(quantile(dataVar2$zrandom[dataVar2$zrandom > 0], 0.995, na.rm = T))
-                        HigherNegativeTail995 <- -quantile_995z - min(dataVar2$zrandom)
-                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z]))/sum(dataVar2$abszrandom)
-                        daysUnderHigherNegativeTail995 <- length(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z])
-                        PerCentdaysUnderHigherNegativeTail995 <- 100 * length(dataVar2$zrandom[dataVar2$zrandom < -quantile_995z])/nrow(dataVar2)
+                        maxPositiveZscore <- max(dataVar2$normrandom, na.rm = T)
+                        quantile_995z     <- as.numeric(quantile(dataVar2$normrandom[dataVar2$normrandom > 0], 0.995, na.rm = T))
+                        HigherNegativeTail995 <- -quantile_995z - min(dataVar2$normrandom)
+                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z]))/sum(dataVar2$absrandomsmooth)
+                        daysUnderHigherNegativeTail995 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z])
+                        PerCentdaysUnderHigherNegativeTail995 <- 100 * length(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z])/nrow(dataVar2)
                         
-                        HigherNegativeTail100 <- -maxPositiveZscore - min(dataVar2$zrandom)
-                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore]))/sum(dataVar2$abszrandom)
-                        daysUnderHigherNegativeTail100 <- length(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore])
-                        PerCentdaysUnderHigherNegativeTail100 <- 100 * length(dataVar2$zrandom[dataVar2$zrandom < -maxPositiveZscore]) / nrow(dataVar2)
+                        HigherNegativeTail100 <- -maxPositiveZscore - min(dataVar2$randomsmooth)
+                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore]))/sum(dataVar2$absrandomsmooth)
+                        daysUnderHigherNegativeTail100 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore])
+                        PerCentdaysUnderHigherNegativeTail100 <- 100 * length(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore]) / nrow(dataVar2)
                 }
                 
                 ReturnResults <- rbind(ReturnResults, c('site' = site, 
@@ -1745,7 +1760,7 @@ Freq <- 180
 resultsAll <- NULL
 
 {
-randomtype <- 'TrendRemoved' # 'TrendKept'
+SeasonalType <- 'Smooth' # 'TrendKept'
 pdf(file.path(dir.out, 'dailyTrendRemovedAnomaly.plots.pdf'))
 par(mfrow=c(3,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
 
