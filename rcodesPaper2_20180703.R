@@ -667,7 +667,7 @@ write.csv(res.all2, 'structural_index/results/structural.index.csv', row.names =
 #------------------------------------------------------------------------------#
 #### Calculating Index for any additional site with inventory data ####
 #------------------------------------------------------------------------------#
-data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
+data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
 sites.complete        <- unique(as.character(data.structure.forest$site))
 
 Dir.In     <- 'Structural_index/final_data'
@@ -703,6 +703,36 @@ data.structure.forest <- rbind(data.structure.forest, res.all2)
 data.structure.forest[is.na(data.structure.forest)] <- -9999
 write.csv(data.structure.forest, 'structural_index/results/structural.index.csv', row.names = F)
 
+#------------------------------------------------------------------------------#
+#### Calculating Index one value per site ####
+#------------------------------------------------------------------------------#
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
+data.structure.forest[data.structure.forest == -9999] <- 'NA'
+data.structure.forest <- dplyr::select(data.structure.forest, -maxDBH, -No_of_plot, -PlotSize)
+data.structure.forest <- dplyr::filter(data.structure.forest, site == 'CZ-Bk1')
+
+dir.out <- 'main_analysis/strc.data'
+pdf(file.path(dir.out, 'CZ-Bk1.pdf'), compress = T)
+par(mfrow = c(2,2), mar = c(4,4,0.5,0.5))
+with(data.structure.forest, plot(Year, meanDBH))
+with(data.structure.forest, plot(Year, CVDBH))
+with(data.structure.forest, plot(Year, ShannonSize))
+with(data.structure.forest, plot(Year, shapeWeibull))
+dev.off()
+
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
+data.structure.forest[data.structure.forest == -9999] <- 'NA'
+data.structure.forest <- dplyr::select(data.structure.forest, -maxDBH, -No_of_plot, -PlotSize)
+data.structure.forest <- dplyr::filter(data.structure.forest, site == 'US-Ha1')
+
+dir.out <- 'main_analysis/strc.data'
+pdf(file.path(dir.out, 'US-Ha1.pdf'), compress = T)
+par(mfrow = c(2,2), mar = c(4,4,0.5,0.5))
+with(data.structure.forest, plot(Year, meanDBH))
+with(data.structure.forest, plot(Year, CVDBH))
+with(data.structure.forest, plot(Year, ShannonSize))
+with(data.structure.forest, plot(Year, shapeWeibull))
+dev.off()
 
 #------------------------------------------------------------------------------#
 #### Calculating Index one value per site ####
@@ -804,8 +834,8 @@ ListSites  <- as.character(FinalSites$site)
 
 dir.out <- 'flux_data/fluxdata_compare'
 pdf(file.path(dir.out, 'halfhourly.plots.pdf'), compress = T)
-par(mfrow = c(4,3))
-par(mar = c(4,4,0.5,0.5))
+par(mfrow = c(4,3), mar = c(4,4,0.5,0.5))
+
 for(i in 1:length(ListSites)) {
         cat(paste('plotting for', ListSites[i]), '\n')
         site <- ListSites[i]
@@ -1422,15 +1452,16 @@ write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
 #------------------------------------------------------------------------------#
 ts_decompositon_daily <- function(FileName, 
                                   Site, 
-                                  Problematic.Year 
-                                  ) {
+                                  Problematic.Year,
+                                  plotsmooth
+) {
         data           <- read.csv(FileName)
         data           <- dplyr::select(data, 
                                         'TIMESTAMP', 
                                         'NEE_VUT_REF', 
                                         'RECO_DT_VUT_REF', 
                                         'GPP_DT_VUT_REF'
-                                        )
+        )
         
         names(data)    <- c('timestamp', 'nee', 'reco', 'gpp')
         data$timestamp <- ymd(data$timestamp, tz = 'GMT')
@@ -1446,17 +1477,15 @@ ts_decompositon_daily <- function(FileName,
         data$nep       <- -data$nee
         
         # doing data analysis for growing season
-        data <- dplyr::filter(data, doy > 120, doy < 301)
+        data <- dplyr::filter(data, doy >= 121, doy <= 300)
         startyear <- data[1, 'year']
         endyear   <- data[nrow(data), 'year']
         Freq = 180
         var <- c('nep', 'gpp', 'reco') 
-        DataReturn <- data.frame('year' = rep(c(startyear:endyear), each = Freq), 
-                                 'doy' = rep(c(121:300), length(unique(c(startyear:endyear))))
-        )
+        
         for(i in 1:length(var)) {
-                dataVar <- data[,c('year', 'doy', var[i])] 
-                names(dataVar) <- c('year', 'doy', 'var')
+                dataVar <- data[,c('timestamp', 'year', 'doy', var[i])] 
+                names(dataVar) <- c('timestamp', 'year', 'doy', 'var')
                 
                 #--------------------------------------------------------------#
                 # calculate trend based using annual averages
@@ -1473,11 +1502,13 @@ ts_decompositon_daily <- function(FileName,
                 }
                 
                 # detrending the data 
-                dataVar$detrendVar <- dataVar$var-dataVar$trend
-                # calculating seasonal cycle after removing trend
+                dataVar$detrend <- dataVar$var-dataVar$trend
+                
+                #--------------------------------------------------------------#
+                # calculating seasonal cycle after removing trend #  The mean seasonal cycle is centered to 0.
                 seasonalcycle <- dataVar %>%
                         group_by(doy) %>%
-                        summarise(seasonalVar = mean(detrendVar, na.rm = T))
+                        summarise(seasonal = mean(detrend, na.rm = T))
                 # merging seasonal data with main dataset
                 dataVar<- merge(dataVar, 
                                 seasonalcycle, 
@@ -1485,44 +1516,91 @@ ts_decompositon_daily <- function(FileName,
                                 all = T)
                 
                 # random component calculated after trend and seasonal cycle is removed
-                dataVar$random     <- dataVar$var - dataVar$trend - dataVar$seasonalVar
+                dataVar$random     <- dataVar$var - dataVar$trend - dataVar$seasonal
                 # z score of random component
-                dataVar$zrandom    <- (dataVar$random - mean(dataVar$random, na.rm = T))/sd(dataVar$random, na.rm = T)
+                dataVar$normrandom    <- dataVar$random/mean(dataVar$var, na.rm = T)
                 # absolute z score of random component
-                dataVar$abszrandom <- abs(dataVar$zrandom)
+                dataVar$absnormrandom <- abs(dataVar$normrandom)
                 
                 #--------------------------------------------------------------#
-                # seasonal cycle two doesn't consider the trend in data
-                seasonalcycle2 <- dataVar %>%
+                # calculating centred mean seasonal cycle after removing trend #  The mean seasonal cycle is centered to 0.
+                quantiledata <- dataVar %>%
                         group_by(doy) %>%
-                        summarise(seasonalVar2 = mean(var, na.rm = T))
+                        summarise(quantileLow = quantile(detrend, 0.25, na.rm = T),
+                                  quantileUp = quantile(detrend, 0.75, na.rm = T))
+                # merging seasonal data with main dataset
+                dataVar<- merge(dataVar, 
+                                quantiledata, 
+                                by='doy', 
+                                all = T)
+                dataVar$detrendVarCentreMean <- with(dataVar, ifelse(detrend >= quantileLow & detrend <= quantileUp, detrend, NA))
                 
-                dataVar <- merge(dataVar, seasonalcycle2, by='doy', all = T)
-                dataVar$random2 <- dataVar$var - dataVar$seasonalVar2
-                dataVar$zrandom2 <- (dataVar$random2 - mean(dataVar$random2, na.rm = T))/sd(dataVar$random2, na.rm = T)
-                dataVar$abszrandom2 <- abs(dataVar$zrandom2)
+                seasonalcycle <- dataVar %>%
+                        group_by(doy) %>%
+                        summarise(seasonalCentreMean = mean(detrendVarCentreMean, na.rm = T))
+                # merging seasonal data with main dataset
+                dataVar<- merge(dataVar, 
+                                seasonalcycle, 
+                                by='doy', 
+                                all = T)
+                
+                # random component calculated after trend and seasonal cycle is removed
+                dataVar$randomCentreMean     <- dataVar$var - dataVar$trend - dataVar$seasonalCentreMean
+                # z score of random component
+                dataVar$normrandomCentreMean    <- dataVar$randomCentreMean/mean(dataVar$var, na.rm = T)
+                # absolute z score of random component
+                dataVar$absnormrandomCentreMean <- abs(dataVar$normrandomCentreMean)
+                
                 #--------------------------------------------------------------#
-                names(dataVar) <- c('doy', 
-                                    'year', 
-                                    var[i], 
-                                    paste0(var[i], 'trend'), 
-                                    paste0(var[i], 'detrended'),
-                                    paste0(var[i], 'seasonal'),
-                                    paste0(var[i], 'random'),
-                                    paste0(var[i], 'zrandom'),
-                                    paste0(var[i], 'abszrandom'),
-                                    paste0(var[i], 'seasonal2'),
-                                    paste0(var[i], 'random2'),
-                                    paste0(var[i], 'zrandom2'),
-                                    paste0(var[i], 'abszrandom2')
-                )
+                # seasonal cycle with smooth spline
+                dataVar2 <- dataVar[!is.na(dataVar$detrend),]
+                smoothseasoncycle1 <- smooth.spline(x = dataVar2$doy, 
+                                                    y = dataVar2$detrend,
+                                                    df = 10)
                 
-                DataReturn <- merge(DataReturn, dataVar, by = c('year', 'doy'))
+                smoothseasonalCycleAlldata <- data.frame('doy' = smoothseasoncycle1$x, 
+                                                         'smoothseasonalcycleAll' = smoothseasoncycle1$y)
+                dataVar<- merge(dataVar, 
+                                smoothseasonalCycleAlldata, 
+                                by='doy', 
+                                all = T)
+                #--------------------------------------------------------------#
+                # seasonal cycle with smooth spline from centred mean
+                dataVar3 <- dataVar[!is.na(dataVar$detrendVarCentreMean),]
+                smoothseasoncycle2 <- smooth.spline(x = dataVar3$doy, 
+                                                    y = dataVar3$detrendVarCentreMean,
+                                                    df = 10)
+                smoothseasonalCycleAlldataCentreMean <- data.frame('doy' = smoothseasoncycle2$x, 
+                                                                   'smoothseasonalcycleCentreMean' = smoothseasoncycle2$y)
+                dataVar<- merge(dataVar, 
+                                smoothseasonalCycleAlldataCentreMean, 
+                                by='doy', 
+                                all = T)
+                
+                if(plotsmooth == 'YES') {
+                        with(dataVar2, plot(doy, detrend))
+                        lines(smoothseasoncycle1, col = 2, lwd = 2)
+                        lines(dataVar$doy, dataVar$seasonalVar, col = 2, lwd = 2)
+                        with(dataVar3, points(doy, detrendVarCentreMean, col =3 ))
+                        lines(smoothseasoncycle2, col = 4, lwd = 2)  
+                        legend('topright', 
+                               c(Site, 'All data', 'Center data', 'smooth All Data', 'smooth centre data'), 
+                               pch = c('', 'o', 'o', '', ''),
+                               lty = c(0, 0, 0,1, 1),
+                               col = c(0, 1, 3, 2, 4),
+                               bty = 'n',
+                               ncol = 1)
+                        
+                }
+                
+                dataVar$var <- var[i]
+                
         } # end for analysis for ith co2 component
-        DataReturn[is.na(DataReturn)] <- -9999
-        DataReturn$site <- Site
-        return(DataReturn)
+        dataVar[is.na(dataVar)] <- -9999
+        dataVar$site <- Site
+        return(dataVar)
 } # end of the funtion
+
 
 #------------------------------------------------------------------------------#
 #### Daily ts decomposition ####
@@ -1541,8 +1619,9 @@ for(j in 1:length(sitelistwithstructuredata)) {
                 data.problem.for.site <- data.problem %>%
                         filter(site == Site) %>%
                         filter(dont_use_annual == 1)
+                plotsmooth = 'YES'
                 Problematic.Year <- data.problem.for.site$Not_good_year
-                site.data <- ts_decompositon_daily (FileName, Site, Problematic.Year) 
+                site.data <- ts_decompositon_daily (FileName, Site, Problematic.Year, plotsmooth) 
                 write.csv(site.data, file.path(dir.out, paste0(Site, '_flux_ts_decomposed.csv')), row.names = F)
         }
 }
