@@ -18,3 +18,5 @@ Date: 20180710
 1. Calculated anomaly however there were issues with structural data.
 2. Found the plot size mistake in US-UMB and corrected.
 3. checking issues in US-NR1 diameter data
+4. corrected some bugs in diameter distribution function
+5. Produced a beautiful corellelogram

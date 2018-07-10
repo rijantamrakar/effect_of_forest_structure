@@ -40,7 +40,12 @@ required.packages <- c("dplyr",                                                 
                        'chron',
                        'RColorBrewer',
                        'lattice',
-                       'matrixStats' 
+                       'matrixStats',
+                       'vegan',
+                       'bda',
+                       'ggpubr',
+                       'stats',
+                       "PerformanceAnalytics"                                   # for producing interesting corellelogram
 )  
 # checking if any packages are not installed
 new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
@@ -169,7 +174,7 @@ Structural_Index_DBH <- function(Filename,
                 
                 #----------------------------------------------------------------------#
                 # mean diameter, heigth and basal area of trees above (12cm)
-                print('Calculating mean dbh, heigth and basal area')
+                cat(paste('Calculating mean dbh, heigth and basal area of', Site), '\n')
                 data_trees <- data
                 data_trees[data_trees == -9999] <- NA
                 data_plot <- data_trees %>%
@@ -199,7 +204,7 @@ Structural_Index_DBH <- function(Filename,
                 resultsInd <- rbind(resultsInd, c('No_of_plot', No_of_plot))
                 
                 #----------------------------------------------------------------------#
-                print('Calculating Species Richness')
+                cat(paste('Calculating Species Richness of', Site), '\n')
                 # Species Richness based on basalAread
                 data_abundance <- data %>%
                         group_by(plot.no, species) %>%
@@ -224,7 +229,7 @@ Structural_Index_DBH <- function(Filename,
                 
                 #--------------------------------------------------------------#
                 # Shannon and simpson index
-                print('Calculating Shannon and simpson index based on species')
+                cat(paste('Calculating Shannon and simpson index based on species of', Site), '\n')
                 dataforDiversityIndex <- data %>%
                         group_by(plot.no, species) %>%
                         summarise(speciesNo = n())
@@ -253,7 +258,7 @@ Structural_Index_DBH <- function(Filename,
                 
                 #--------------------------------------------------------------#
                 # Shannon and simpson index for diameter classes
-                print('Calculating Shannon and simpson index based on diameter class')
+                cat(paste('Calculating Shannon and simpson index based on diameter class of', Site), '\n')
                 plot.No <- unique(data$plot.no)
                 maxVal  <- ceiling(max(data$dbh)/sizeclass) *sizeclass 
                 minVal  <- floor(min(data$dbh)/sizeclass) *sizeclass 
@@ -312,7 +317,7 @@ Structural_Index_DBH <- function(Filename,
                 
                 #----------------------------------------------------------------------#
                 # Weibull curve fitting
-                print('Calculating parameters of Weibull curve')
+                cat(paste('Calculating parameters of Weibull curve of', Site), '\n')
                 while(FinalDBHdistribution[nrow(FinalDBHdistribution), 'CountTreesPerHa'] == 0) {
                         FinalDBHdistribution <- FinalDBHdistribution[-nrow(FinalDBHdistribution), ]
                 } 
@@ -404,6 +409,8 @@ Structural_Index_DBH <- function(Filename,
                 
                 # plotting diagram if requested
                 if(plotDiaDist == 'TRUE') {
+                        cat(paste('Plotting diameter distribution for', Site), '\n')
+                        
                         plots      <- list()
                         plots[[eachyear]] <- ggplot(data = FinalDBHdistribution, aes(x=V1, y=CountTreesPerHa)) + 
                                 theme_bw() +
@@ -463,9 +470,9 @@ DiameterDistribution <- function (Filename,
                 
                 DataYear <- filter(data, inventory.year == years[i]) %>%
                         mutate(prodDBH = mid.val * no.per.ha) %>%
-                        mutate(TBA = pi * (mid.val)^2 * no.per.ha / 10000)
+                        mutate(TBA = pi * (mid.val)^2 * no.per.ha / 40000)
                 
-                noTrees  <- sum(DataYear$no.per.ha)
+                noTrees  <- round(sum(DataYear$no.per.ha))
                 meanDBH  <- round(sum(DataYear$prodDBH)/noTrees, 2)
                 DataYear <- mutate(DataYear, diff = no.per.ha * (meanDBH-mid.val)^2)
                 
@@ -473,6 +480,16 @@ DiameterDistribution <- function (Filename,
                 CVDBH    <- round(sdDBH/meanDBH, 2)
                 
                 TBA <- round(sum(DataYear$TBA))
+                
+                if(length(DataYear$mid.val[DataYear$mid.val > 100]) > 0) {
+                        DataYear1 <- dplyr::filter(DataYear, mid.val < 103)
+                        nostemsLastGroup <- sum(DataYear$no.per.ha[DataYear$mid.val > 100])
+                        DataYear1[nrow(DataYear1), 'no.per.ha'] <- nostemsLastGroup   
+                } else {
+                        DataYear1 <- DataYear
+                }
+                
+                DataYear <- DataYear1
                 
                 # Shannon and simpson index for diameter classes (4 cm for now)
                 Simpson  <- round(diversity(DataYear$no.per.ha, "simpson"), 4)
@@ -521,7 +538,7 @@ DiameterDistribution <- function (Filename,
                                 xlab("DBH class [cm]") + 
                                 ylab(expression('Stems [' ~ ha^-1 ~ ']')) +
                                 theme(legend.position="none") +
-                                scale_x_continuous(limits = c(0,100), expand = c(0, 0)) +
+                                scale_x_continuous(limits = c(0,105), expand = c(0, 0)) +
                                 scale_y_continuous(limits = c(0, maxY), expand = c(0, 0)) 
                         
                         plots[[i + 1]] <- ggplot(data = DataYear, aes(x=mid.val, y=probTrees)) + 
@@ -532,7 +549,7 @@ DiameterDistribution <- function (Filename,
                                 xlab("DBH class [cm]") + 
                                 ylab(expression('Probability of no of stems [ ]')) +
                                 theme(legend.position="none") +
-                                scale_x_continuous(limits = c(0,100), expand = c(0, 0)) +
+                                scale_x_continuous(limits = c(0,105), expand = c(0, 0)) +
                                 scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
                                 annotate("text", x = 75, y = 0.45, label = paste('Shape =', round(shapeWeibull,2), 'Scale', round(scaleWeibull,2)), size = 2)
                         
@@ -570,12 +587,12 @@ DiameterDistribution <- function (Filename,
 }
 
 #------------------------------------------------------------------------------#
-#### Function for calculating Index for inventory data ####
+#### Calculating Index for inventory data ####
 #------------------------------------------------------------------------------#
-Dir.In     <- 'Structural_index/final_data'
+Dir.In     <- 'main_analysis/strc.data/final_data'
 FileLists  <- list.files(Dir.In, full.names = T, pattern = 'Inventory.Data')
 ShortNames <- list.files(Dir.In, pattern = 'Inventory.Data')
-Dir.Res    <- 'Structural_index/results/figures'
+Dir.Res    <- 'main_analysis/strc.data/figures'
 plotDiaDist <- 'TRUE'
 sizeclass <- 4
 
@@ -599,11 +616,11 @@ res.all2 <- dcast(res.all,
 #------------------------------------------------------------------------------#
 #### Function for calculating Index for RuFryo ####
 #------------------------------------------------------------------------------#
-Filename   <- "Structural_index/final_data/RU-Fyo.Diameter.Distribution.csv"
+Filename   <- "main_analysis/strc.data/final_data/RU-Fyo.Diameter.Distribution.csv"
 Site       <- 'RU-Fyo'
 plotDiaDist <- 'TRUE'
 SizeClass = 4
-Dir.Res    <- 'Structural_index/results/figures'
+Dir.Res    <- 'main_analysis/strc.data/figures'
 TotalSpeciesRichnessBA <- 2
 TotalSpeciesRichnessBA95 <- 2
 
@@ -621,11 +638,11 @@ res.all2 <- rbind(res.all2, data2)
 #------------------------------------------------------------------------------#
 #### Function for calculating Index for FR-Fon ####
 #------------------------------------------------------------------------------#
-Filename <- "Structural_index/final_data/FR-Fon.Diameter.Distribution.csv"
+Filename <- "main_analysis/strc.data/final_data/FR-Fon.Diameter.Distribution.csv"
 Site     <- 'FR-Fon'
 plotDiaDist <- 'TRUE'
 SizeClass = 5
-Dir.Res    <- 'Structural_index/results/figures'
+Dir.Res    <- 'main_analysis/strc.data/figures'
 TotalSpeciesRichnessBA <- 2
 TotalSpeciesRichnessBA95 <- 2
 
@@ -643,11 +660,11 @@ res.all2 <- rbind(res.all2, data2)
 #------------------------------------------------------------------------------#
 #### Function for calculating Index for US-DK3 ####
 #------------------------------------------------------------------------------#
-Filename   <- "Structural_index/final_data/US-DK3.Diameter.Distribution.csv"
+Filename   <- "main_analysis/strc.data/final_data/US-DK3.Diameter.Distribution.csv"
 Site       <- 'US-Dk3'
 plotDiaDist <- 'TRUE'
 SizeClass = 5
-Dir.Res    <- 'Structural_index/results/figures'
+Dir.Res    <- 'main_analysis/strc.data/figures'
 TotalSpeciesRichnessBA <- 17
 TotalSpeciesRichnessBA95 <- 11
 data2 <- DiameterDistribution  (Filename, 
@@ -661,19 +678,19 @@ data2 <- DiameterDistribution  (Filename,
 
 res.all2 <- rbind(res.all2, data2)
 
-write.csv(res.all2, 'structural_index/results/structural.index.csv', row.names = F)
+write.csv(res.all2, 'main_analysis/strc.data/structural.index.csv', row.names = F)
 
 
 #------------------------------------------------------------------------------#
 #### Calculating Index for any additional site with inventory data ####
 #------------------------------------------------------------------------------#
-data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
 sites.complete        <- unique(as.character(data.structure.forest$site))
 
-Dir.In     <- 'Structural_index/final_data'
+Dir.In     <- 'main_analysis/strc.data/final_data'
 FileLists  <- list.files(Dir.In, full.names = T, pattern = 'Inventory.Data')
 ShortNames <- list.files(Dir.In, pattern = 'Inventory.Data')
-Dir.Res    <- 'Structural_index/results/figures'
+Dir.Res    <- 'main_analysis/strc.data/figures'
 plotDiaDist <- 'TRUE'
 sizeclass <- 4
 Site     <- substr(ShortNames, 1, 6)
@@ -744,13 +761,17 @@ data.structure.forest <- data.structure.forest %>%
         group_by(site) %>%
         summarise_all(mean)
 
-write.csv(data.structure.forest, 'structural_index/results/structural.index.one.value.csv', row.names = F)
+write.csv(data.structure.forest, 'main_analysis/strc.data/structural.index.one.value.csv', row.names = F)
 
 #------------------------------------------------------------------------------#
 # How does structural data look like ####
 #------------------------------------------------------------------------------#
-data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.one.value.csv')
 data.structure.forest[data.structure.forest == -9999] <- 'NA'
+
+data.structure.forest <- dplyr::select(data.structure.forest, -site, -SimpsonSize, -SimpsonSps)
+
+chart.Correlation(data.structure.forest, histogram=TRUE, pch=19)
 
 
 #------------------------------------------------------------------------------#
