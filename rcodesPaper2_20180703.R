@@ -704,7 +704,7 @@ data.structure.forest[is.na(data.structure.forest)] <- -9999
 write.csv(data.structure.forest, 'structural_index/results/structural.index.csv', row.names = F)
 
 #------------------------------------------------------------------------------#
-#### Calculating Index one value per site ####
+#### Calculating Index one value per site eg. for two sites ####
 #------------------------------------------------------------------------------#
 data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
 data.structure.forest[data.structure.forest == -9999] <- 'NA'
@@ -737,7 +737,7 @@ dev.off()
 #------------------------------------------------------------------------------#
 #### Calculating Index one value per site ####
 #------------------------------------------------------------------------------#
-data.structure.forest <- read.csv ('Structural_index/results/structural.index.csv')
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
 data.structure.forest[data.structure.forest == -9999] <- 'NA'
 data.structure.forest <- dplyr::select(data.structure.forest, -Year, -maxDBH, -No_of_plot, -PlotSize)
 data.structure.forest <- data.structure.forest %>%
@@ -745,6 +745,13 @@ data.structure.forest <- data.structure.forest %>%
         summarise_all(mean)
 
 write.csv(data.structure.forest, 'structural_index/results/structural.index.one.value.csv', row.names = F)
+
+#------------------------------------------------------------------------------#
+# How does structural data look like ####
+#------------------------------------------------------------------------------#
+data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.csv')
+data.structure.forest[data.structure.forest == -9999] <- 'NA'
+
 
 #------------------------------------------------------------------------------#
 # preparing required daily Fluxnet2015 data ####
@@ -1634,15 +1641,15 @@ for(j in 1:length(sitelistwithstructuredata)) {
 }
 
 
-
 #------------------------------------------------------------------------------#
 #### Anomaly calculation function ####
 #------------------------------------------------------------------------------#
-anomaly_calculation <- function(FileName, site, SeasonalType, Plot, Freq, dir.plot) {
+anomaly_calculation <- function(FileName, site, SeasonalType, Plot) {
         data <- read.csv(FileName)
         data[data == -9999] <- NA
         Var  <- c('nep', 'gpp', 'reco')
         ReturnResults <- NULL
+        data$timestamp <- ymd(data$timestamp)
         for(i in 1:length(Var)) {
                 cat('calculating extreme data of', Var[i], 'for site', site, '\n')
                 dataVar <- dplyr::filter(data, Co2flux == Var[i])
@@ -1653,116 +1660,121 @@ anomaly_calculation <- function(FileName, site, SeasonalType, Plot, Freq, dir.pl
                         reqdVar <- c('timestamp', 'year', 'doy', 'var', 'trend', 'seasonal', 'random', 'normrandom', 'absnormrandom')
                         }
                 
-                dataVar     <- data[ ,reqdVar]
+                dataVar     <- dataVar[ , reqdVar]
                 names(dataVar) <- c('timestamp', 'year', 'doy', 'var', 'trend', 'seasonal', 'random', 'normrandom', 'absnormrandom')
-                
-                
-                
                 
                 dataVar2 <- na.omit(dataVar)
                 
-                if(var[i] == 'reco') {
-                        maxPositiveZscore  <- abs(min(dataVar2$normrandom, na.rm = T))
-                        quantile_995z      <- as.numeric(quantile(abs(dataVar2$normrandom[dataVar2$normrandom < 0]), 0.995, na.rm = T))
-                        HigherNegativeTail995 <- -quantile_995z + max(dataVar2$normrandom, na.rm = T)
+                if(Var[i] == 'reco') {
+                        maxPositivescore  <- -min(dataVar2$random, na.rm = T)
+                        quantile_995      <- as.numeric(quantile(abs(dataVar2$random[dataVar2$random < 0]), 0.995, na.rm = T))
+                        dataVar$random995 <- with(dataVar, ifelse(random < quantile_995, NA, random))
+                        dataVar$random100 <- with(dataVar, ifelse(random < maxPositivescore, NA, random))
                         
-                        TotalAreaUnderCurve = sintegral(dataVar,y)$int
+                        maxPositiveZscore         <- abs(min(dataVar2$normrandom, na.rm = T))
+                        quantile_995z             <- as.numeric(quantile(abs(dataVar2$normrandom[dataVar2$normrandom < 0]), 0.995, na.rm = T))
+                        HigherNegativeTail995     <- round(-quantile_995z + max(dataVar2$normrandom, na.rm = T), 3)
+                        ProbEventsNegativeTail995 <- round(100* length(dataVar2$normrandom[dataVar2$normrandom > quantile_995z])/nrow(dataVar2), 3)
+                        HigherNegativeTail100     <- round(-maxPositiveZscore + max(dataVar2$normrandom), 3)
+                        ProbEventsNegativeTail100 <- round(100* length(dataVar2$normrandom[dataVar2$normrandom > maxPositiveZscore])/nrow(dataVar2), 3)
                         
-                        hist(dataVar2$normrandom, breaks=1000, freq=F, xlab='Slope Value (percent)', xlim=c(-4, 4), ylim=c(0,2))
-                        lines(density(dataVar2$normrandom, bw=1), col='green')
+                        dataVar$normrandom995 <- with(dataVar, ifelse(normrandom < quantile_995z, NA, normrandom))
+                        dataVar$normrandom100 <- with(dataVar, ifelse(normrandom < maxPositiveZscore, NA, normrandom))
                         
-                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$normrandom[dataVar2$normrandom > quantile_995z]))/sum(dataVar2$absrandomsmooth)
-                        daysUnderHigherNegativeTail995 <- length(dataVar2$normrandom[dataVar2$normrandom > quantile_995z])
-                        PerCentdaysUnderHigherNegativeTail995 <- 100* length(dataVar2$normrandom[dataVar2$normrandom > quantile_995z])/nrow(dataVar2)
                         
-                        HigherNegativeTail100 <- -maxPositiveZscore + max(dataVar2$randomsmooth)
-                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore]))/sum(dataVar2$absrandomsmooth)
-                        daysUnderHigherNegativeTail100 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore])
-                        PerCentdaysUnderHigherNegativeTail100 <- 100* length(dataVar2$randomsmooth[dataVar2$randomsmooth > maxPositiveZscore])/nrow(dataVar2)
                 } else {
-                        maxPositiveZscore <- max(dataVar2$normrandom, na.rm = T)
-                        quantile_995z     <- as.numeric(quantile(dataVar2$normrandom[dataVar2$normrandom > 0], 0.995, na.rm = T))
-                        HigherNegativeTail995 <- -quantile_995z - min(dataVar2$normrandom)
-                        areaUnderHigherNegativeTail995 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z]))/sum(dataVar2$absrandomsmooth)
-                        daysUnderHigherNegativeTail995 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z])
-                        PerCentdaysUnderHigherNegativeTail995 <- 100 * length(dataVar2$randomsmooth[dataVar2$randomsmooth < -quantile_995z])/nrow(dataVar2)
+                        maxPositivescore  <- max(dataVar2$random, na.rm = T)
+                        quantile_995      <- as.numeric(quantile(dataVar2$random[dataVar$random > 0], 0.995, na.rm = T))
+                        dataVar$random995 <- with(dataVar, ifelse(random > -quantile_995, NA, random))
+                        dataVar$random100 <- with(dataVar, ifelse(random > -maxPositivescore, NA, random))
                         
-                        HigherNegativeTail100 <- -maxPositiveZscore - min(dataVar2$randomsmooth)
-                        areaUnderHigherNegativeTail100 <- 100* sum(abs(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore]))/sum(dataVar2$absrandomsmooth)
-                        daysUnderHigherNegativeTail100 <- length(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore])
-                        PerCentdaysUnderHigherNegativeTail100 <- 100 * length(dataVar2$randomsmooth[dataVar2$randomsmooth < -maxPositiveZscore]) / nrow(dataVar2)
+                        maxPositiveZscore         <- max(dataVar2$normrandom, na.rm = T)
+                        quantile_995z             <- as.numeric(quantile(dataVar2$normrandom[dataVar2$normrandom > 0], 0.995, na.rm = T))
+                        HigherNegativeTail995     <- round(-quantile_995z - min(dataVar2$normrandom), 3)
+                        ProbEventsNegativeTail995 <- round(100 * length(dataVar2$normrandom[dataVar2$normrandom < -quantile_995z])/nrow(dataVar2), 3)
+                        HigherNegativeTail100     <- round(-maxPositiveZscore - min(dataVar2$normrandom), 3)
+                        ProbEventsNegativeTail100 <- round(100 * length(dataVar2$normrandom[dataVar2$normrandom < -maxPositiveZscore]) / nrow(dataVar2), 3)
+                        
+                        dataVar$normrandom995 <- with(dataVar, ifelse(normrandom > -quantile_995z, NA, normrandom))
+                        dataVar$normrandom100 <- with(dataVar, ifelse(normrandom > -maxPositiveZscore, NA, normrandom))
                 }
                 
+                
                 ReturnResults <- rbind(ReturnResults, c('site' = site, 
-                                                        'var' = var[i],
-                                                        'HigherNegativeTail995' = HigherNegativeTail995,
-                                                        'areaUnderHigherNegativeTail995' = areaUnderHigherNegativeTail995,
-                                                        'daysUnderHigherNegativeTail995' = daysUnderHigherNegativeTail995,
-                                                        'PerCentdaysUnderHigherNegativeTail995' = PerCentdaysUnderHigherNegativeTail995,
-                                                        'HigherNegativeTail100' = HigherNegativeTail100,
-                                                        'areaUnderHigherNegativeTail100' = areaUnderHigherNegativeTail100,
-                                                        'daysUnderHigherNegativeTail100' = daysUnderHigherNegativeTail100,
-                                                        'PerCentdaysUnderHigherNegativeTail100' = PerCentdaysUnderHigherNegativeTail100
+                                                        'var'  = Var[i],
+                                                        'SeasonalType' = SeasonalType,
+                                                        'NegativeTail995' = HigherNegativeTail995,
+                                                        'ProbEventsNegativeTail995' = ProbEventsNegativeTail995,
+                                                        'NegativeTail100' = HigherNegativeTail100,
+                                                        'ProbEventsNegativeTail100' = ProbEventsNegativeTail100
                                                         )
                                        ) # end of rbind
                 
                 # plot decomposed data
                 if(Plot == 'YES') {
-                        cat(paste('creating plot of', var[i], 'for site', site), '\n')
-                        plot.ts(ts(dataVar$var, start=c(startyear,1,1), frequency=Freq), lty = 2, xaxt = 'n')
-                        if (var[i] == 'nep') mtext(expression(NEP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'gpp') mtext(expression(GPP ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'reco') mtext(expression(Reco ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        lines(ts(dataVar$trend, start=c(startyear,1,1), frequency=Freq), col = 2)
-                        legend('topleft', paste(site, var[i], randomtype), bty = 'n')
+                        dataVar <- dplyr::arrange(dataVar, timestamp)
+                        cat(paste('creating plot of', Var[i], 'for site', site), '\n')
+                        with(dataVar, plot(timestamp, var, pch = '.', xaxt = 'n', xlab = '', cex = 2, ylab = ''))
+                        if (Var[i] == 'nep') mtext(expression(NEP ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'gpp') mtext(expression(GPP ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'reco') mtext(expression(Reco ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        lines(dataVar$timestamp, dataVar$trend, col = 2)
+                        legend('topleft', paste(site, Var[i], SeasonalType), bty = 'n')
                         
-                        plot.ts(ts(dataVar$seasonal, start=c(startyear,1,1), frequency=Freq), lty = 1, col=1, xaxt = 'n')
-                        if (var[i] == 'nep') mtext(expression(NEP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'gpp') mtext(expression(GPP[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'reco') mtext(expression(Reco[s] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        with(dataVar, plot(timestamp, seasonal, pch = '.', xaxt = 'n', xlab = '', cex = 2, ylab = ''))
+                        if (Var[i] == 'nep') mtext(expression(NEP[s] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'gpp') mtext(expression(GPP[s] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'reco') mtext(expression(Reco[s] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        legend('topleft', paste('seasonal cycle centred at zero'), bty = 'n')
                         
-                        plot.ts(ts(dataVar$random, start=c(startyear,1,1), frequency=Freq), col=1, typ = 'p', pch = '.')
-                        if (var[i] == 'nep') mtext(expression(NEP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'gpp') mtext(expression(GPP[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
-                        if (var[i] == 'reco') mtext(expression(Reco[r] ~ "["~g ~ C ~ m^{-2} ~ wk^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        with(dataVar, plot(timestamp, random, pch = '.', xaxt = 'n', xlab = '', cex = 2, ylab = ''))
+                        if (Var[i] == 'nep') mtext(expression(NEP[r] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'gpp') mtext(expression(GPP[r] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'reco') mtext(expression(Reco[r] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
                         abline(h=0, col = 2)
+                        legend('bottomleft', paste('anomalies after subtracting trend and seasonal cycle'), bty = 'n')
                         
-                        if(var[i] == 'reco') {
-                                maxPositiveZscore <- -min(dataVar$random, na.rm = T)
-                                quantile_995      <- as.numeric(quantile(abs(dataVar$random[dataVar$random < 0]), 0.995, na.rm = T))
-                                dataRandom        <- ts(dataVar$random, start=c(startyear,1,1), frequency=Freq)
-                                dataRandom995     <- ifelse(dataRandom < quantile_995, NA, dataRandom)
-                                dataRandommax     <- ifelse(dataRandom < maxPositiveZscore, NA, dataRandom)   
-                        } else {
-                                maxPositiveZscore <- max(dataVar$random, na.rm = T)
-                                quantile_995      <- as.numeric(quantile(dataVar$random[dataVar$random > 0], 0.995, na.rm = T))
-                                dataRandom        <- ts(dataVar$random, start=c(startyear,1,1), frequency=Freq)
-                                dataRandom995     <- ifelse(dataRandom > -quantile_995, NA, dataRandom)
-                                dataRandommax     <- ifelse(dataRandom > -maxPositiveZscore, NA, dataRandom)
-                        }
                         
-                        points(dataRandom995, col=3, typ = 'p')
-                        points(dataRandommax, col=2, typ = 'p')
+                        points(dataVar$timestamp, dataVar$random995, col=3, typ = 'p')
+                        points(dataVar$timestamp, dataVar$random100, col=2, typ = 'p')
+                        abline(h=quantile_995, col = 3, lty = 2)
+                        abline(h=-quantile_995, col = 3, lty = 2)
+                        abline(h=maxPositivescore, col = 2, lty = 2)
+                        abline(h=-maxPositivescore, col = 2, lty = 2)
+                        
+                        with(dataVar, plot(timestamp, normrandom, pch = '.', xlab = '', cex = 2, ylab = ''))
+                        if (Var[i] == 'nep') mtext(expression(NEP[rnorm] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'gpp') mtext(expression(GPP[rnorm] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        if (Var[i] == 'reco') mtext(expression(Reco[rnorm] ~ "["~g ~ C ~ m^{-2} ~ d^{-1} ~ ']'), side = 2, outer = F, cex =0.7, line = 2.2, col = "black")
+                        abline(h=0, col = 1, lty = 2)
+                        abline(h=quantile_995z, col = 3, lty = 2)
+                        abline(h=-quantile_995z, col = 3, lty = 2)
+                        abline(h=maxPositiveZscore, col = 2, lty = 2)
+                        abline(h=-maxPositiveZscore, col = 2, lty = 2)
+                        points(dataVar$timestamp, dataVar$normrandom995, col=3, typ = 'p')
+                        points(dataVar$timestamp, dataVar$normrandom100, col=2, typ = 'p')
+                        legend('bottomleft', paste('anomalies by divided overall mean'), bty = 'n')
+                        
+                        
                 } # end of plot when requested 
         } # end of anomaly calculation for ith co2 var
         return(ReturnResults)
 }
 
 #------------------------------------------------------------------------------#
-#### Daily Anomaly calculation removing trend  ####
+#### Daily Anomaly calculation smooth_seasonal_cycle  ####
 #------------------------------------------------------------------------------#
 dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
 sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
 dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
 dir.out  <- 'main_analysis/anomaly_detection/daily'
 Plot <- 'YES'
-Freq <- 180
 resultsAll <- NULL
 
 {
 SeasonalType <- 'Smooth' # 'TrendKept'
-pdf(file.path(dir.out, 'dailyTrendRemovedAnomaly.plots.pdf'))
-par(mfrow=c(3,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
+pdf(file.path(dir.out, 'dailyAnomaly_smooth_seasonal_cycle.plots.pdf'))
+par(mfrow=c(4,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
 
 for(j in 1:length(sitelist)) {
         site <- sitelist[j]
@@ -1771,24 +1783,30 @@ for(j in 1:length(sitelist)) {
                 
                 site.data <- anomaly_calculation (FileName, 
                                                   site, 
-                                                  randomtype,
-                                                  Plot, 
-                                                  Freq, 
-                                                  dir.plot)
+                                                  SeasonalType,
+                                                  Plot
+                                                  )
                 resultsAll<- rbind(resultsAll, site.data)
         }
 }
 dev.off()
-write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Removed.csv'), row.names = F)
+write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_smooth_seasonal_cycle.csv'), row.names = F)
 }
 
 #------------------------------------------------------------------------------#
-#### Daily Anomaly calculation keeping trend  ####
+#### Daily Anomaly calculation with mean seasonal cycle from centre  ####
 #------------------------------------------------------------------------------#
+dir.data <- 'main_analysis/anomaly_detection/daily/ts_decomposed_data'
+sitelist <- substr(list.files(dir.data, full.names = F), 1, 6)
+dir.plot <- 'main_analysis/anomaly_detection/daily/figures'
+dir.out  <- 'main_analysis/anomaly_detection/daily'
+Plot <- 'YES'
+resultsAll <- NULL
+
 {
-        randomtype <- 'TrendKept' # 'TrendRemoved'
-        pdf(file.path(dir.out, 'dailyTrendKeptAnomaly.plots.pdf'))
-        par(mfrow=c(3,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
+        SeasonalType <- 'SmoothCentreMean' # 'Smooth, SmoothCentreMean '
+        pdf(file.path(dir.out, 'dailyAnomaly_SmoothCentreMean_seasonal_cycle.plots.pdf'))
+        par(mfrow=c(4,1), oma=c(4,4,0.5,0.5), mar = c(0,0,0,0))
         
         for(j in 1:length(sitelist)) {
                 site <- sitelist[j]
@@ -1797,36 +1815,32 @@ write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Removed.csv'), r
                         
                         site.data <- anomaly_calculation (FileName, 
                                                           site, 
-                                                          randomtype,
-                                                          Plot, 
-                                                          Freq, 
-                                                          dir.plot)
+                                                          SeasonalType,
+                                                          Plot
+                        )
                         resultsAll<- rbind(resultsAll, site.data)
                 }
         }
         dev.off()
-        write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_Trend_Kept.csv'), row.names = F)
+        write.csv(resultsAll, file.path(dir.out, 'daily_anomalies_SmoothCentreMean_seasonal_cycle.csv'), row.names = F)
 }
 
 #------------------------------------------------------------------------------#
 #### Corelation between structural index and co2 fluxes at daily scale  ####
 #------------------------------------------------------------------------------#
-#### Trend Removed ####
+# smooth_seasonal_cycle #
 {
 stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
-anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_Trend_Removed.csv'
+anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_smooth_seasonal_cycle.csv'
 
 stru.data <- read.csv(stru.file)
 anom.data <- read.csv(anom.file)
 Var       <- c('nep', 'gpp', 'reco')
-YVar      <- c("HigherNegativeTail995", 
-               "areaUnderHigherNegativeTail995",
-               "daysUnderHigherNegativeTail995",
-               "PerCentdaysUnderHigherNegativeTail995",
-               "HigherNegativeTail100",
-               "areaUnderHigherNegativeTail100",
-               "daysUnderHigherNegativeTail100",
-               "PerCentdaysUnderHigherNegativeTail100")
+YVar      <- c("NegativeTail995", 
+               "ProbEventsNegativeTail995",
+               "NegativeTail100",
+               "ProbEventsNegativeTail100"
+               )
 
 XVar       <- c("CVDBH",
                 "meanDBH",
@@ -1838,7 +1852,7 @@ XVar       <- c("CVDBH",
 
 dir.plot <- 'main_analysis/CorrelationBetweenAnoAndStruc'
 dir.out  <- 'main_analysis/CorrelationBetweenAnoAndStruc'
-pdf(file.path(dir.out, 'dailyTrendRemovedAnomalyVsStrucIndex.plots.pdf'))
+pdf(file.path(dir.out, 'dailySmoothSeasonalCycleAnomalyVsStrucIndex.plots.pdf'))
 par(oma=c(2,6,2,8), mar = c(4,0,0,0))
 par(mfrow=c(3,2))
 
@@ -1890,25 +1904,22 @@ for(i in 1:length(Var)) {
         } # end for independent variable
 } # end for all carbon dioxide fluxes
 dev.off() # end of pdf
-write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Removed_Vs_Struc_Index.csv'), row.names = F)
+write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_smooth_seasonal_cycle_Vs_Struc_Index.csv'), row.names = F)
 }
 
 #### Trend kept ####
 {
         stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
-        anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_Trend_Kept.csv'
+        anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_SmoothCentreMean_seasonal_cycle.csv'
         
         stru.data <- read.csv(stru.file)
         anom.data <- read.csv(anom.file)
         Var       <- c('nep', 'gpp', 'reco')
-        YVar      <- c("HigherNegativeTail995", 
-                       "areaUnderHigherNegativeTail995",
-                       "daysUnderHigherNegativeTail995",
-                       "PerCentdaysUnderHigherNegativeTail995",
-                       "HigherNegativeTail100",
-                       "areaUnderHigherNegativeTail100",
-                       "daysUnderHigherNegativeTail100",
-                       "PerCentdaysUnderHigherNegativeTail100")
+        YVar      <- c("NegativeTail995", 
+                       "ProbEventsNegativeTail995",
+                       "NegativeTail100",
+                       "ProbEventsNegativeTail100"
+        )
         
         XVar       <- c("CVDBH",
                         "meanDBH",
@@ -1920,7 +1931,7 @@ write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Rem
         
         dir.plot <- 'main_analysis/CorrelationBetweenAnoAndStruc'
         dir.out  <- 'main_analysis/CorrelationBetweenAnoAndStruc'
-        pdf(file.path(dir.out, 'dailyTrendKeptAnomalyVsStrucIndex.plots.pdf'))
+        pdf(file.path(dir.out, 'dailySmoothCentreMeanVsStrucIndex.plots.pdf'))
         par(oma=c(2,6,2,8), mar = c(4,0,0,0), mfrow=c(3,2))
         
         resultsCorr <- NULL
@@ -1971,7 +1982,7 @@ write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Rem
                 } # end for independent variable
         } # end for all carbon dioxide fluxes
         dev.off() # end of pdf
-        write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_Trend_Kept_Vs_Struc_Index.csv'), row.names = F)
+        write.csv(resultsCorr, file.path(dir.out, 'Correlation_daily_anomalies_smooth_CentredMean_Vs_Struc_Index.csv'), row.names = F)
 }
 
 #------------------------------------------------------------------------------#
