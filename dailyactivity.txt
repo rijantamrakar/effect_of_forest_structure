@@ -20,3 +20,8 @@ Date: 20180710
 3. checking issues in US-NR1 diameter data
 4. corrected some bugs in diameter distribution function
 5. Produced a beautiful corellelogram
+
+Date:  20180720
+1. Prepared the corellelogram plot on structural index
+2. Worked on annual GPPsat
+3. Map Produced

@@ -45,7 +45,9 @@ required.packages <- c("dplyr",                                                 
                        'bda',
                        'ggpubr',
                        'stats',
-                       "PerformanceAnalytics"                                   # for producing interesting corellelogram
+                       "PerformanceAnalytics",                                   # for producing interesting corellelogram
+                       "mapdata",
+                       'maps'
 )  
 # checking if any packages are not installed
 new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
@@ -147,7 +149,27 @@ final_data <- merge(final_data, musavi_data, by.x = 'Site.CODE', by.y = 'M_site.
 
 write.csv(final_data, file.path(paste0('Communication_with_PIs/finallist.', format(Sys.time(), "%Y%m%d"), '.csv')), row.names = F)
 ################################################################################
+Dir.In     <- 'main_analysis/strc.data/final_data'
+ShortNames <- list.files(Dir.In)
+sites      <- substr(ShortNames, 1, 6)
+
+dataSite <- read.csv('main_analysis/finallist_20180626.csv')
+dataSite <- filter(dataSite, site %in% sites)
+dir.out  <- 
+
+jpeg(file=file.path('main_analysis', paste('map_site', 'jpeg', sep = '.')), width=200,height=80, units='mm', res=300)
+par(mfrow = c(1,1))
+par(mar=c(0, 0, 0, 0), oma = c(0, 0, 0.5, 0.5))
+map('worldHires', mar = c(0,0,0,0))
+NRROW <- nrow(dataSite)
+for (i in 1:NRROW) {
+        points(dataSite[i, 'Lon'], dataSite[i, 'Lat'], col =2, pch = 18, cex = 0.8)
+}
+
+dev.off()
+
 ################################################################################
+
 
 #------------------------------------------------------------------------------#
 #### Function for calculating Index ####
@@ -769,10 +791,26 @@ write.csv(data.structure.forest, 'main_analysis/strc.data/structural.index.one.v
 data.structure.forest <- read.csv ('main_analysis/strc.data/structural.index.one.value.csv')
 data.structure.forest[data.structure.forest == -9999] <- 'NA'
 
-data.structure.forest <- dplyr::select(data.structure.forest, -site, -SimpsonSize, -SimpsonSps)
+data.structure.forest <- dplyr::filter(data.structure.forest, !site %in% c('JP-Tef', 'US-Me5', 'US-Prr'))
+data.structure.forest <- dplyr::select(data.structure.forest, -site, -SimpsonSize, -SimpsonSps, -TotalSpeciesRichnessBA95)
+data.structure.forest <- dplyr::select(data.structure.forest, 
+                                       meanDBH, 
+                                       sdDBH, 
+                                       CVDBH, 
+                                       noTreeperHa, 
+                                       TBAm2ha, 
+                                       TotalSpeciesRichnessBA,
+                                       ShannonSps,
+                                       ShannonSize,
+                                       scaleWeibull,
+                                       shapeWeibull
+                                       )
 
-chart.Correlation(data.structure.forest, histogram=TRUE, pch=19)
-
+dir.out <- 'main_analysis/strc.data'
+pdf(file.path(dir.out, 'structuralIndices.pdf'), compress = T, width = 10, height = 10)
+par(mfrow = c(1,1), mar = c(4,4,0.5,0.5))
+chart.Correlation(data.structure.forest, histogram=TRUE, pch=19, method = 'peason')
+dev.off()
 
 #------------------------------------------------------------------------------#
 # preparing required daily Fluxnet2015 data ####
@@ -1411,25 +1449,19 @@ XVar       <- c("meanDBH",
                 "TotalSpeciesRichnessBA95")
 
 resultsCorr <- NULL
+
+dir.out   <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+pdf(paste0(dir.out, '/CVco2flux.pdf'), width = 6, height = 9, compress = T)
+par(oma = c(0,4,0.5,0.5), 
+    mar = c(4,0,0,0),
+    mfrow=c(3,2)
+)
 for(i in 1:length(Var)) {
         anom.data.var <- dplyr::filter(anom.data, ReqdVar == Var[i])
         data <- merge(anom.data.var, stru.data, by = 'site')
         
         for(j in 1:length(YVar)) {
-                PlotName <- paste(Var[i], 
-                                  YVar[j], 
-                                  'Correlation.structural.Index.annual.jpeg', 
-                                  sep = '.')
-                jpeg(file=file.path(dir.out, PlotName),
-                     width  = 90,
-                     height = 160, 
-                     units  = 'mm', 
-                     res    = 300
-                     )
-                par(oma = c(0,4,0.5,0.5), 
-                    mar = c(4,0,0,0),
-                    mfrow=c(3,2)
-                    )
+                
                 
                 for(k in 1:length(XVar)) {
                         dataYXvar <- data[, c(YVar[j], XVar[k])]
@@ -1465,7 +1497,7 @@ for(i in 1:length(Var)) {
                         
                 } # end for all dependent variable
                 mtext(paste(YVar[j], Var[i]), outer = T, side = 2,  line = 2.2, cex = 0.8)
-                dev.off()
+                
         } # end for all independent variables Yvar
 } # end for all carbon dioxide variables
 FileName <- paste(Var[i], 
@@ -1473,7 +1505,112 @@ FileName <- paste(Var[i],
                   'Correlation.structural.Index.annual.csv', 
                   sep = '.')
 write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
+dev.off()
 }
+
+
+#------------------------------------------------------------------------------#
+#### calculating average values for GPPsat ####
+#------------------------------------------------------------------------------#
+FileName <- 'main_analysis/GPPsat/Annual_extractions_GPP1000_Amax.csv'
+data     <- read.csv(FileName)
+dataAvg  <- data %>%
+        group_by(Site_code) %>%
+        summarise(AvgAmax   = mean(Amax, na.rm = T),
+                  SdAmax    =  sd(Amax, na.rm = T),
+                  AvgGPPsat = mean(GPP1000, na.rm = T),
+                  SdGPPsat  = sd(GPP1000, na.rm = T),
+                  NoYears   = n()
+        ) %>%
+        mutate(CvAmax  = SdAmax/AvgAmax,
+               CvGPPsat = SdGPPsat/AvgGPPsat
+        )
+
+
+#------------------------------------------------------------------------------#
+#### Calculating corelation between structural index and gppsat  ####
+#------------------------------------------------------------------------------#
+{
+        dir.out   <- 'main_analysis/CorrelationBetweenAnoAndStruc'
+        pdf(paste0(dir.out, '/CVgppsat.pdf'), width = 6, height = 9, compress = T)
+        par(oma = c(0,4,0.5,0.5), 
+            mar = c(4,0,0,0),
+            mfrow=c(3,2)
+        )
+        stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
+        stru.data <- read.csv(stru.file)
+        anom.data <- dataAvg
+        
+        YVar      <- c("AvgAmax", 
+                       "SdAmax",
+                       'CvAmax',
+                       'AvgGPPsat',
+                       'SdGPPsat',
+                       'CvGPPsat')
+        
+        XVar       <- c("meanDBH",
+                        "CVDBH",
+                        "ShannonSize",
+                        "ShannonSps",
+                        "shapeWeibull",
+                        "TotalSpeciesRichnessBA95")
+        
+        resultsCorr <- NULL
+        
+        data <- merge(anom.data, stru.data, by.x = 'Site_code', by.y = 'site')
+        
+        for(j in 1:length(YVar)) {
+                
+                for(k in 1:length(XVar)) {
+                        dataYXvar <- data[, c(YVar[j], XVar[k])]
+                        names(dataYXvar) <- c('YVar', 'XVar')
+                        minY <- min(dataYXvar$YVar)
+                        maxY <- max(dataYXvar$YVar)
+                        
+                        corrResults <- cor.test(dataYXvar$YVar, dataYXvar$XVar)
+                        pVal        <- corrResults$p.value
+                        corrValue   <- cor(dataYXvar$YVar, dataYXvar$XVar)
+                        
+                        resultsCorr <- rbind(resultsCorr, 
+                                             c('Var' = Var[i],
+                                               'YVar' = YVar[j],
+                                               'XVar' = XVar[k],
+                                               'corrVal' = corrValue,
+                                               'Rsq' = round(corrValue^2, 2), 
+                                               'pVal' = pVal))
+                        
+                        with(dataYXvar, plot(XVar, 
+                                             YVar, 
+                                             yaxt = 'n', 
+                                             xlab = '', 
+                                             ylab = '')
+                        )
+                        
+                        axis(2, 
+                             at = round(seq(minY, maxY, by = (maxY - minY)/4), 2), 
+                             labels = F)
+                        
+                        if(k %in% c(1,3,5)) 
+                                axis(2, 
+                                     at = round(seq(minY, maxY, by = (maxY - minY)/4), 2), 
+                                     labels = T)
+                        
+                        mtext(XVar[k], outer = F, side = 1,  line = 2.2, cex = 0.8)
+                        legend('topright', paste('corr =', round(corrValue, 2)), bty = 'n')
+                        
+                } # end for all dependent variable
+                mtext(paste(YVar[j]), outer = T, side = 2,  line = 2.2, cex = 0.8)
+                
+        } # end for all independent variables Yvar
+        
+        dev.off()
+        FileName <- paste(Var[i], 
+                          YVar[j], 
+                          'Correlation.structural.Index.GPPsat.csv', 
+                          sep = '.')
+        write.csv(resultsCorr, file.path(dir.out, FileName), row.names = F)
+}
+
 
 #------------------------------------------------------------------------------#
 #### Function: daily timeseries decomposition ####
@@ -1855,6 +1992,7 @@ stru.file <- 'main_analysis/strc.data/structural.index.one.value.csv'
 anom.file <- 'main_analysis/anomaly_detection/daily/daily_anomalies_smooth_seasonal_cycle.csv'
 
 stru.data <- read.csv(stru.file)
+stru.data <- dplyr::filter(stru.data, !site %in% c('JP-Tef', 'US-Prr', 'US-Me5'))
 anom.data <- read.csv(anom.file)
 Var       <- c('nep', 'gpp', 'reco')
 YVar      <- c("NegativeTail995", 
