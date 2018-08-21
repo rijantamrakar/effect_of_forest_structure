@@ -25,3 +25,13 @@ Date:  20180720
 1. Prepared the corellelogram plot on structural index
 2. Worked on annual GPPsat
 3. Map Produced
+
+Date: 20180720
+1. Prepare more details of the site
+2. Be careful with naming, it can help you a lot.
+  2.1 Always start data name in R with 'Data', 'Plot'
+3. Started to collect some site data.
+4. Let me work on annual data first
+5. Talked to mark and I confused myself more
+6. Learnt a bit about fourier transformation and anomaly detection but I didn't
+    understand anything.

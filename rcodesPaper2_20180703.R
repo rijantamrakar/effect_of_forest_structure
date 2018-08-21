@@ -47,7 +47,8 @@ required.packages <- c("dplyr",                                                 
                        'stats',
                        "PerformanceAnalytics",                                   # for producing interesting corellelogram
                        "mapdata",
-                       'maps'
+                       'maps',
+                       'quantreg' 
 )  
 # checking if any packages are not installed
 new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
@@ -57,7 +58,6 @@ if(length(new.packages)) {
 } 
 # loading all required packages
 lapply(required.packages, require, character.only = TRUE)
-
 
 ################################################################################
 ################################################################################
@@ -149,13 +149,12 @@ final_data <- merge(final_data, musavi_data, by.x = 'Site.CODE', by.y = 'M_site.
 
 write.csv(final_data, file.path(paste0('Communication_with_PIs/finallist.', format(Sys.time(), "%Y%m%d"), '.csv')), row.names = F)
 ################################################################################
-Dir.In     <- 'main_analysis/strc.data/final_data'
-ShortNames <- list.files(Dir.In)
-sites      <- substr(ShortNames, 1, 6)
 
-dataSite <- read.csv('main_analysis/finallist_20180626.csv')
+#------------------------------------------------------------------------------#
+#### site map preparation ####
+#------------------------------------------------------------------------------#
+dataSite <- read.csv('main_analysis/finallist_Short_20180712.csv')
 dataSite <- filter(dataSite, site %in% sites)
-dir.out  <- 
 
 jpeg(file=file.path('main_analysis', paste('map_site', 'jpeg', sep = '.')), width=200,height=80, units='mm', res=300)
 par(mfrow = c(1,1))
@@ -163,13 +162,15 @@ par(mar=c(0, 0, 0, 0), oma = c(0, 0, 0.5, 0.5))
 map('worldHires', mar = c(0,0,0,0))
 NRROW <- nrow(dataSite)
 for (i in 1:NRROW) {
-        points(dataSite[i, 'Lon'], dataSite[i, 'Lat'], col =2, pch = 18, cex = 0.8)
+        if(dataSite[i, 'IGBP'] == 'DBF') points(dataSite[i, 'Lon'], dataSite[i, 'Lat'], col = 2, pch = 15, cex = 0.8)
+        if(dataSite[i, 'IGBP'] == 'EBF') points(dataSite[i, 'Lon'], dataSite[i, 'Lat'],  col = 3, pch = 16, cex = 0.8)
+        if(dataSite[i, 'IGBP'] == 'MF')  points(dataSite[i, 'Lon'], dataSite[i, 'Lat'], col = 4, pch = 17, cex = 0.8)
+        if(dataSite[i, 'IGBP'] == 'ENF') points(dataSite[i, 'Lon'], dataSite[i, 'Lat'], col = 'darkgreen', pch = 18, cex = 0.8)
 }
 
+legend('bottomleft', c('DBF', 'EBF', 'MF',  'ENF'), col = c('red', 'green', 'blue', 'darkgreen'), pch = c(15:18), ncol = 4)
+
 dev.off()
-
-################################################################################
-
 
 #------------------------------------------------------------------------------#
 #### Function for calculating Index ####
@@ -859,27 +860,49 @@ reqd.var <- c("TIMESTAMP",
               'GPP_DT_VUT_REF')
 
 dir.data   <- 'flux_data/Unzipped_Fluxnet2015_database_tier_2'
+dir.data1   <- 'flux_data/Unzipped_Fluxnet2015_database_tier_1'
 filetype   <- 'FULLSET_YY'
 timestep   <- 'ann'
 dir.out    <- "main_analysis/flux.data"
-FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
-ListSites  <- as.character(FinalSites$site)
+#FinalSites <- read.csv('main_analysis/finallist_20180626.csv') 
+FinalSites <- read.csv('main_analysis/finallist_Short_20180712ver2.csv') 
 
+ListSites  <- as.character(FinalSites$site)
 SitesFluxnet2015 <- list.files(dir.data)
+SitesDirOut <- substr(list.files(file.path(dir.out, timestep)), 9,14)
+
 nodata <- NULL
 for(i in 1:length(ListSites)) {
         if(length(grep(ListSites[i], SitesFluxnet2015)) == 1) {
                 
-                cat(paste('Reading data for site', ListSites[i]), '\n')
-                site_Filename<- list.files(file.path(dir.data, ListSites[i]), pattern = filetype, full.names = T)
-                
-                dataheader   <- names(read.table(site_Filename, nrow = 1, sep = ',', header = T))
-                col.var      <- which(dataheader %in% reqd.var)
-                
-                site_Data    <- data.table::fread(site_Filename, select = col.var)
-                write.csv(site_Data, file.path(dir.out, timestep, paste0('SEL_FLX_', ListSites[i], '_FLUXNET2015_', filetype, '.csv')), row.names = F)
-                
+                if(length(grep(ListSites[i], SitesDirOut)) != 1){
+                        cat(paste('Reading data for site', ListSites[i]), '\n')
+                        site_Filename<- list.files(file.path(dir.data, ListSites[i]), 
+                                                   pattern = filetype, 
+                                                   full.names = T)
+                        dataheader   <- names(read.table(site_Filename, nrow = 1, sep = ',', header = T))
+                        col.var      <- which(dataheader %in% reqd.var)
+                        
+                        site_Data    <- data.table::fread(site_Filename, select = col.var)
+                        write.csv(site_Data, file.path(dir.out, timestep, paste0('SEL_FLX_', ListSites[i], '_FLUXNET2015_', filetype, '.csv')), row.names = F)
+                }
+
         } else {nodata <- append(nodata, ListSites[i]) }
+}
+
+## get data from tier one after unzipping folder ####
+Site <- nodata
+Dir.data <- 'flux_data/fluxnet2015_tier1'
+tier1sites <- substr(list.files(Dir.data, full.names = F, pattern = 'FULLSET'), 5, 10)
+Dir.out <- 'flux_data/Unzipped_Fluxnet2015_database_tier_1'
+
+for(i in 1:length(Site)) {
+        # file name of the site
+        if(length(grep(Site[i], tier1sites)) > 0) {
+                file <- list.files(Dir.data, full.names = T, pattern = Site[i])
+                print(paste('unzipping file from', Site[i]))
+                unzip(file, exdir = file.path(Dir.out, Site[i]))
+        } else {nodata <- append(nodata, Site[i])}
 }
 
 #------------------------------------------------------------------------------#
@@ -1015,6 +1038,25 @@ timeseries_plot <- function(FileName, site) {
 
 #------------------------------------------------------------------------------#
 #### PLotting annual flux timeseries ####
+#------------------------------------------------------------------------------#
+sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
+dir.data <- 'main_analysis/flux.data/ann'
+dir.out   <- 'main_analysis/flux.data/annual_flux_all_sites'
+
+pdf(file.path(dir.out, 'annual.plots.pdf'))
+par(mfrow = c(3,1))
+par(mar = c(4,4,0.5,0.5))
+for(j in 1:length(sitelistwithstructuredata)) {
+        site <- sitelistwithstructuredata[j]
+        FileName <- list.files(dir.data, pattern = site, full.names = T)
+        if(length(FileName) == 1) {
+                timeseries_plot(FileName, site)     
+        }
+}
+dev.off()
+
+#------------------------------------------------------------------------------#
+#### PLotting annual flux timeseries for more sites 20180716 ####
 #------------------------------------------------------------------------------#
 sitelistwithstructuredata <- substr(list.files('main_analysis/strc.data/final_data', full.names = F), 1, 6)
 dir.data <- 'main_analysis/flux.data/ann'
@@ -1343,7 +1385,7 @@ timeseries_avg <- function(FileName,                                            
                            timestep,                                            # can be daily, weekly, monthly, annual
                            PlotData)
 {                      
-        
+        cat(paste('Reading data for site', Site), '\n')
         data           <- read.csv(FileName)                                    # reading data
         data           <- dplyr::select(data, 'TIMESTAMP', 
                                         'NEE_VUT_REF', 
@@ -1354,8 +1396,9 @@ timeseries_avg <- function(FileName,                                            
         data$nep       <- -data$nee                                             # getting nep
         
         data2      <- dplyr::filter(data, !timestamp %in% Problematic.Year) # removing problematic year
-        
         ReqdVar    <- c('nep', 'reco', 'gpp')                                   # names of variable for result output
+        
+        cat(paste('Calculating annual statistics for site', Site), '\n')
         average    <- round(colMeans2(as.matrix(data2[,ReqdVar]), na.rm = T), 1)# calculating average using MatixStats package
         stdDev     <- round(colSds(as.matrix(data2[,ReqdVar]), na.rm = T), 1)   # calculating standard deviation using MatixStats package
         CoefVar    <- round(100 * stdDev/abs(average), 1)                       # calculating coefficient of variation using MatixStats package
@@ -1366,6 +1409,7 @@ timeseries_avg <- function(FileName,                                            
         
         # plot the data if asked 
         if(PlotData == 'YES') {
+                cat(paste('Plotting data for site', Site), '\n')
                 maxY <- max(data$nep, data$reco, data$gpp, na.rm = T)           # maximum value for y - axis
                 minY <- min(data$nep, data$reco, data$gpp, na.rm = T)           # minimum value for y - axis
                 
