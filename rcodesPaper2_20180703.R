@@ -48,7 +48,10 @@ required.packages <- c("dplyr",                                                 
                        "PerformanceAnalytics",                                   # for producing interesting corellelogram
                        "mapdata",
                        'maps',
-                       'quantreg' 
+                       'quantreg',
+                       'lmomco',
+                       'SPEI',
+                       'tsbox'
 )  
 # checking if any packages are not installed
 new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
