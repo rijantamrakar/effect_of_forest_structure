@@ -1,11 +1,12 @@
 # Daily soil water model using simple bucket method # 
 
 # Data required
-# timeseries of air temperature, global radiation, precipitation
+# timeseries of mean air temperature, max air temperature, min air temperature, global radiation, precipitation
+
 
 # Parameters required
 # 
-
+#dfafdasf
 
 
 # preparing data for soil water modelling 

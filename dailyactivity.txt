@@ -35,3 +35,28 @@ Date: 20180720
 5. Talked to mark and I confused myself more
 6. Learnt a bit about fourier transformation and anomaly detection but I didn't
     understand anything.
+
+Date: 20180822
+1. Refreshed my computer by installing fresh windows and programs. Let me not
+pollute it anymore with undesirable programs and viruses. Let me be very careful
+while choosing things for myself. I must protect myself and my computer from
+more dirty things.
+
+2. Pushed all the files to the remote server.
+
+Date: 20180823 planned
+1. Download ERA-interim data at daily scale.
+2. Download spei values at monthly and yearly scale.
+3. Calculate spei values from own data using spei package.
+4. Build simple bucket model for calculating soil water.
+
+Date: 20180823
+1. Write a latex file for the activity/method
+2. Prepare script to download ERA-interim data
+
+Date: 20180824
+1. Preparing soil water model from SWUF and Biljou in R
+
+Date: 20181009
+1. Daily soil water model is complete, use it when I do daily analysis.
+2. Get monthly and annual SPEI values for different sites.
